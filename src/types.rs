@@ -1,13 +1,3 @@
-pub struct ArmMachineState {
-    main_memory: [u8; 65535],
-    register_file: [u32; 17],
-    pipeline: Pipeline,
-}
-
-pub struct Pipeline {
-    fetched: Instruction,
-    decoded: Instruction,
-}
 
 pub enum Instruction {
     DataProc,
