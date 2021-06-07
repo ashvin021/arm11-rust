@@ -1,7 +1,8 @@
 use std::convert::TryInto;
 
+use super::decode::decode;
 use super::utils;
-use crate::types::Instruction;
+use crate::types::*;
 
 pub struct ArmMachineState {
     main_memory: [u8; 65535],
@@ -15,7 +16,10 @@ pub struct Pipeline {
 }
 
 impl ArmMachineState {
-    pub fn new() -> ArmMachineState {
+    const PC: u8 = 15;
+    const CPSR: u8 = 16;
+
+    pub fn new() -> Self {
         let pipeline = Pipeline {
             fetched: None,
             decoded: None,
@@ -34,7 +38,7 @@ impl ArmMachineState {
         }
     }
 
-    pub fn print_state(self: Self) {
+    pub fn print_state(self: &Self) {
         println!("Registers:");
         for (index, contents) in self.register_file.iter().enumerate() {
             match index {
@@ -59,5 +63,62 @@ impl ArmMachineState {
             }
             println!("0x{:0>8x}: 0x{:0>8x}", i, word);
         }
+    }
+
+    pub fn run(self: &mut Self) -> Result<()> {
+        loop {
+            if let Some(to_execute) = self.pipeline.decoded.clone() {
+                if let Instruction::Raw(0) = to_execute {
+                    break;
+                } else {
+                    self.execute(to_execute)?;
+                }
+            }
+
+            if let Some(fetched) = &self.pipeline.fetched {
+                if let Instruction::Raw(word) = fetched {
+                    self.pipeline.decoded = Some(decode(word)?);
+                }
+            }
+
+            self.pipeline.fetched = Some(self.fetch_next()?);
+        }
+
+        Ok(())
+    }
+
+    fn fetch_next(self: &mut Self) -> Result<Instruction> {
+        let from: usize = self.register_file[ArmMachineState::PC as usize].try_into()?;
+        let bytes: [u8; 4] = self.main_memory[from..from + 4].try_into()?;
+        let word = utils::to_u32_reg(&bytes);
+        Ok(Instruction::Raw(word))
+    }
+
+    fn execute(self: &mut Self, instr: Instruction) -> Result<()> {
+        match instr {
+            Instruction::DataProc { .. } => self.execute_dataproc(instr),
+            Instruction::Multiply { .. } => self.execute_multiply(instr),
+            Instruction::SDT { .. } => self.execute_sdt(instr),
+            Instruction::Branch { .. } => self.execute_branch(instr),
+            Instruction::Raw(b) => {
+                Err(format!("Cannot execute undecoded instruction - 0x{:0>8x}", b).into())
+            }
+        }
+    }
+
+    fn execute_dataproc(self: &mut Self, instr: Instruction) -> Result<()> {
+        Ok(())
+    }
+
+    fn execute_multiply(self: &mut Self, instr: Instruction) -> Result<()> {
+        Ok(())
+    }
+
+    fn execute_sdt(self: &mut Self, instr: Instruction) -> Result<()> {
+        Ok(())
+    }
+
+    fn execute_branch(self: &mut Self, instr: Instruction) -> Result<()> {
+        Ok(())
     }
 }
