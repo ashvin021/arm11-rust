@@ -1,53 +1,56 @@
+use std::{error, result};
 
+pub type Result<T> = result::Result<T, Box<dyn error::Error>>;
+
+#[derive(Debug, Clone, Copy)]
 pub enum Instruction {
-    DataProc,
-    Multiply,
-    SDT,
-    Branch,
+    DataProc {
+        cond: ConditionCode,
+        opcode: u8,
+        is_immediate: bool,
+        set_cond: bool,
+        rn: u8,
+        rd: u8,
+        operand2: Operand2,
+    },
+
+    Multiply {
+        cond: ConditionCode,
+        accumulate: bool,
+        set_cond: bool,
+        rd: u8,
+        rn: u8,
+        rs: u8,
+        rm: u8,
+    },
+
+    SDT {
+        cond: ConditionCode,
+        is_shifted_r: bool,
+        is_preindexed: bool,
+        up_bit: bool,
+        load: bool,
+        rn: u8,
+        rd: u8,
+        offset: Operand2,
+    },
+
+    Branch {
+        cond: ConditionCode,
+        offset: i32,
+    },
+
+    Raw(u32),
 }
 
-pub struct DataProc {
-    cond: ConditionCode,
-    opcode: u8,
-    is_immediate: bool,
-    set_cond: bool,
-    rn: u8,
-    rd: u8,
-    operand2: Operand2,
-}
-
-pub struct Multiply {
-    cond: ConditionCode,
-    accumulate: bool,
-    set_cond: bool,
-    rd: u8,
-    rn: u8,
-    rs: u8,
-    rm: u8,
-}
-
-pub struct SDT {
-    cond: ConditionCode,
-    is_shifted_r: bool,
-    is_preindexed: bool,
-    up_bit: bool,
-    load: bool,
-    rn: u8,
-    rd: u8,
-    offset: Operand2,
-}
-
-pub struct Branch {
-    cond: ConditionCode,
-    offset: i32,
-}
-
+#[derive(Debug, Clone, Copy)]
 pub enum Operand2 {
     ConstantShift(u8, u8),
     ConstantShiftedReg(u8, ShiftType, u8),
     ShiftedReg(u8, ShiftType, u8),
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum ShiftType {
     Lsl,
     Lsr,
@@ -55,6 +58,7 @@ pub enum ShiftType {
     Ror,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum ConditionCode {
     Eq_,
     Ne,
