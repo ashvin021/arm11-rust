@@ -1,3 +1,4 @@
+mod alu;
 mod decode;
 mod machine;
 mod utils;

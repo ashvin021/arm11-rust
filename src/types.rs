@@ -6,8 +6,7 @@ pub type Result<T> = result::Result<T, Box<dyn error::Error>>;
 pub enum Instruction {
     DataProc {
         cond: ConditionCode,
-        opcode: u8,
-        is_immediate: bool,
+        opcode: DataProcOpcode,
         set_cond: bool,
         rn: u8,
         rd: u8,
@@ -59,6 +58,20 @@ pub enum ShiftType {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub enum DataProcOpcode {
+    And,
+    Eor,
+    Sub,
+    Rsb,
+    Add,
+    Cmp,
+    Tst,
+    Teq,
+    Orr,
+    Mov,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum ConditionCode {
     Eq_,
     Ne,
@@ -67,4 +80,11 @@ pub enum ConditionCode {
     Gt,
     Le,
     Al,
+}
+
+pub enum CpsrFlag {
+    VFlag = 28,
+    CFlag = 29,
+    ZFlag = 30,
+    NFlag = 31,
 }
