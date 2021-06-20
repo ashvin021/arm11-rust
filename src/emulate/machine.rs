@@ -91,7 +91,7 @@ impl ArmMachineState {
     fn fetch_next(self: &mut Self) -> Result<Instruction> {
         let from: usize = self.register_file[ArmMachineState::PC as usize].try_into()?;
         let bytes: [u8; 4] = self.main_memory[from..from + 4].try_into()?;
-        let word = utils::to_u32_reg(&bytes);
+        let word: u32 = utils::to_u32_reg(&bytes);
         Ok(Instruction::Raw(word))
     }
 
@@ -143,6 +143,7 @@ impl ArmMachineState {
 
                 Ok(())
             }
+            Instruction::DataProc { .. } => Ok(()),
             _ => Err(format!("Cannot execute {:?} as DataProc", instr).into()),
         }
     }
@@ -179,6 +180,7 @@ impl ArmMachineState {
 
                 Ok(())
             }
+            Instruction::Multiply { .. } => Ok(()),
             _ => Err(format!("Cannot execute {:?} as Multiply", instr).into()),
         }
     }
@@ -187,7 +189,6 @@ impl ArmMachineState {
         match instr {
             Instruction::SDT {
                 cond,
-                is_shifted_r: _,
                 is_preindexed,
                 up_bit,
                 load,
@@ -240,6 +241,7 @@ impl ArmMachineState {
 
                 Ok(())
             }
+            Instruction::SDT { .. } => Ok(()),
             _ => Err(format!("Cannot execute {:?} as SDT", instr).into()),
         }
     }
@@ -255,7 +257,7 @@ impl ArmMachineState {
                 self.pipeline.flush();
                 Ok(())
             }
-
+            Instruction::Branch { .. } => Ok(()),
             _ => Err(format!("Cannot execute {:?} as Branch", instr).into()),
         }
     }

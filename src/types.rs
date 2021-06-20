@@ -1,3 +1,4 @@
+use enum_primitive::enum_from_primitive;
 use std::{error, result};
 
 pub type Result<T> = result::Result<T, Box<dyn error::Error>>;
@@ -25,7 +26,6 @@ pub enum Instruction {
 
     SDT {
         cond: ConditionCode,
-        is_shifted_r: bool,
         is_preindexed: bool,
         up_bit: bool,
         load: bool,
@@ -49,42 +49,51 @@ pub enum Operand2 {
     ShiftedReg(u8, ShiftType, u8),
 }
 
+enum_from_primitive! {
 #[derive(Debug, Clone, Copy)]
 pub enum ShiftType {
-    Lsl,
-    Lsr,
-    Asr,
-    Ror,
+    Lsl = 0x0,
+    Lsr = 0x1,
+    Asr = 0x2,
+    Ror = 0x3,
+}
 }
 
+enum_from_primitive! {
 #[derive(Debug, Clone, Copy)]
 pub enum DataProcOpcode {
-    And,
-    Eor,
-    Sub,
-    Rsb,
-    Add,
-    Cmp,
-    Tst,
-    Teq,
-    Orr,
-    Mov,
+    And = 0x0,
+    Eor = 0x1,
+    Sub = 0x2,
+    Rsb = 0x3,
+    Add = 0x4,
+    Cmp = 0x8,
+    Tst = 0x9,
+    Teq = 0xa,
+    Orr = 0xc,
+    Mov = 0xd,
+}
 }
 
+enum_from_primitive! {
 #[derive(Debug, Clone, Copy)]
 pub enum ConditionCode {
-    Eq_,
-    Ne,
-    Ge,
-    Lt,
-    Gt,
-    Le,
-    Al,
+    Eq_ = 0x0,
+    Ne = 0x1,
+    Ge = 0xa,
+    Lt = 0xb,
+    Gt = 0xc,
+    Le = 0xd,
+    Al = 0xe,
+}
 }
 
+enum_from_primitive! {
+#[derive(Debug, Clone, Copy)]
 pub enum CpsrFlag {
     VFlag = 28,
     CFlag = 29,
     ZFlag = 30,
     NFlag = 31,
+}
 }
