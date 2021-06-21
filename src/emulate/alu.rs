@@ -7,13 +7,13 @@ pub fn satisfies_cpsr(cond: &ConditionCode, cpsr_contents: &u32) -> bool {
     let v: bool = extract_bit(cpsr_contents, 28);
 
     match cond {
-        ConditionCode::Eq_ => z,
-        ConditionCode::Ne => !z,
-        ConditionCode::Ge => n == v,
-        ConditionCode::Lt => n != v,
-        ConditionCode::Gt => !z && (n == v),
-        ConditionCode::Le => z || (n != v),
-        ConditionCode::Al => true,
+        Eq => z,
+        Ne => !z,
+        Ge => n == v,
+        Lt => n != v,
+        Gt => !z && (n == v),
+        Le => z || (n != v),
+        Al => true,
     }
 }
 
@@ -60,15 +60,15 @@ pub fn shift(to_shift: u32, shift_amt: u8, shift_type: ShiftType) -> (u32, bool)
     }
 }
 
-pub fn perform_dataproc_operation(op1: i32, op2: i32, opcode: DataProcOpcode) -> (i32, bool) {
+pub fn perform_dataproc_operation(op1: i32, op2: i32, opcode: ProcessingOpcode) -> (i32, bool) {
     match opcode {
-        DataProcOpcode::And | DataProcOpcode::Tst => (op1 & op2, false),
-        DataProcOpcode::Eor | DataProcOpcode::Teq => (op1 ^ op2, false),
-        DataProcOpcode::Sub => op1.overflowing_sub(op2),
-        DataProcOpcode::Rsb => op2.overflowing_sub(op1),
-        DataProcOpcode::Add => op1.overflowing_add(op1),
-        DataProcOpcode::Cmp => (op1 - op2, !(op1 < op2)),
-        DataProcOpcode::Orr => (op1 | op2, false),
-        DataProcOpcode::Mov => (op2, false),
+        ProcessingOpcode::And | ProcessingOpcode::Tst => (op1 & op2, false),
+        ProcessingOpcode::Eor | ProcessingOpcode::Teq => (op1 ^ op2, false),
+        ProcessingOpcode::Sub => op1.overflowing_sub(op2),
+        ProcessingOpcode::Rsb => op2.overflowing_sub(op1),
+        ProcessingOpcode::Add => op1.overflowing_add(op1),
+        ProcessingOpcode::Cmp => (op1 - op2, !(op1 < op2)),
+        ProcessingOpcode::Orr => (op1 | op2, false),
+        ProcessingOpcode::Mov => (op2, false),
     }
 }

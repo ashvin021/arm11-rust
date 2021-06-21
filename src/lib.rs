@@ -5,3 +5,4 @@ pub mod assemble;
 pub mod emulate;
 mod parse;
 mod types;
+mod constants;
