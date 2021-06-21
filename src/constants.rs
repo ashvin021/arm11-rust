@@ -1,0 +1,3 @@
+
+const MEMORY_SIZE = 65535;
+
