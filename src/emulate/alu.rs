@@ -1,30 +1,6 @@
 use super::utils::*;
 use crate::types::*;
 
-pub fn satisfies_cpsr(cond: &ConditionCode, cpsr_contents: &u32) -> bool {
-    let n: bool = extract_bit(cpsr_contents, 31);
-    let z: bool = extract_bit(cpsr_contents, 30);
-    let v: bool = extract_bit(cpsr_contents, 28);
-
-    match cond {
-        Eq => z,
-        Ne => !z,
-        Ge => n == v,
-        Lt => n != v,
-        Gt => !z && (n == v),
-        Le => z || (n != v),
-        Al => true,
-    }
-}
-
-pub fn set_flags(flag: CpsrFlag, set: bool, cpsr_contents: &mut u32) {
-    if set {
-        *cpsr_contents |= 1 << flag as u32;
-    } else {
-        *cpsr_contents &= !1 << flag as u32;
-    }
-}
-
 pub fn barrel_shifter(op2: Operand2, register_file: &[u32; 17]) -> (u32, bool) {
     let (shift_amt, to_shift, shift_type): (u8, u32, ShiftType) = match op2 {
         Operand2::ConstantShift(shift_amt, to_shift) => {

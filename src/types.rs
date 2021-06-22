@@ -54,12 +54,6 @@ pub struct ConditionalInstruction {
     pub cond: ConditionCode,
 }
 
-impl ConditionalInstruction {
-    fn check_cond(/* cpsr stuff in here */) -> bool {
-
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum Operand2 {
     ConstantShift(u8, u8),
@@ -76,7 +70,18 @@ pub enum ShiftType {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ProcessingOpcode { And, Eor, Sub, Rsb, Add, Cmp, Tst, Teq, Orr, Mov }
+pub enum ProcessingOpcode {
+    And,
+    Eor,
+    Sub,
+    Rsb,
+    Add,
+    Cmp,
+    Tst,
+    Teq,
+    Orr,
+    Mov,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum ConditionCode {
