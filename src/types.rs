@@ -24,7 +24,6 @@ pub struct InstructionMultiply {
 
 #[derive(Debug, Clone, Copy)]
 pub struct InstructionTransfer {
-    is_shifted_r: bool,
     is_preindexed: bool,
     up_bit: bool,
     load: bool,

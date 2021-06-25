@@ -6,7 +6,7 @@ use crate::types::*;
 use super::utils;
 
 pub struct EmulatorState {
-    pub memory: [u8; MEMORY_SIZE],
+    memory: [u8; MEMORY_SIZE],
     register_file: [u32; NUM_REGS],
     pipeline: Pipeline,
 }
@@ -51,8 +51,12 @@ impl EmulatorState {
         }
     }
 
-    pub fn pipeline_mut(self: &Self) -> &mut Pipeline {
+    pub fn pipeline(self: &Self) -> &Pipeline {
         &mut self.pipeline
+    }
+
+    pub fn regs(self: &Self) -> &[u32; NUM_REGS] {
+        &self.register_file
     }
 
     // quick ways to read PC and CPSR
@@ -60,22 +64,17 @@ impl EmulatorState {
         &self.register_file[index]
     }
 
-    pub fn reg_mut(self: &Self, index: usize) -> &mut u32 {
-        &mut self.register_file[index]
-    }
-
-    pub fn read_memory(self: &mut Self, address: u32) -> &u32 {
+    pub fn read_memory(self: &mut Self, address: usize) -> &u32 {
         &0
     }
 
-    pub fn write_memory(self: &mut Self, address: u32, val: u32) {}
+    pub fn write_memory(self: &mut Self, address: usize, val: u32) {}
 
     pub fn set_flags(self: &mut Self, flag: CpsrFlag, set: bool) {
-        let cpsr_contents = self.reg_mut(EmulatorState::CPSR);
         if set {
-            *cpsr_contents |= 1 << flag as u32;
+            self.regs()[EmulatorState::CPSR] |= 1 << flag as u32;
         } else {
-            *cpsr_contents &= !(1 << flag as u32);
+            self.regs()[EmulatorState::CPSR] &= !(1 << flag as u32);
         }
     }
 

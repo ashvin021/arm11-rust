@@ -14,7 +14,7 @@ pub fn to_u32_reg(bytes: &[u8; 4]) -> u32 {
     res
 }
 
-pub fn to_u8_slice(word: u32, bytes: &mut [u8]) {
+pub fn to_u8_slice(word: u32, bytes: &[u8]) {
     let mask = mask(8);
     for i in 0..4 {
         bytes[i] = ((word & mask) >> (8 * i)) as u8;
