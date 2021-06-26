@@ -1,7 +1,5 @@
-mod alu;
 mod decode;
 mod execute;
-mod fetch;
 mod machine;
 mod state;
 mod utils;
@@ -13,7 +11,7 @@ use super::types::*;
 pub fn run_pipeline(state: &mut state::EmulatorState) -> Result<()> {
     loop {
         // execute
-        if let Some(to_execute) = state.pipeline().decoded {
+        if let Some(to_execute) = state.pipeline_mut().decoded {
             // check: is halt?
             if let Instruction::Halt = to_execute.instruction {
                 return Ok(());
@@ -23,7 +21,7 @@ pub fn run_pipeline(state: &mut state::EmulatorState) -> Result<()> {
         }
 
         // decode
-        if let Some(word) = state.pipeline().fetched {
+        if let Some(word) = state.pipeline_mut().fetched {
             // pipeline.decoded = Some(decode::decode(word)?);
         }
 

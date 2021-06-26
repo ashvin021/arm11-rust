@@ -51,34 +51,34 @@ impl EmulatorState {
         }
     }
 
-    pub fn pipeline(self: &Self) -> &Pipeline {
+    pub fn pipeline_mut(&mut self) -> &mut Pipeline {
         &mut self.pipeline
     }
 
-    pub fn regs(self: &Self) -> &[u32; NUM_REGS] {
-        &self.register_file
+    pub fn regs_mut(&mut self) -> &mut [u32; NUM_REGS] {
+        &mut self.register_file
     }
 
     // quick ways to read PC and CPSR
-    pub fn reg(self: &Self, index: usize) -> &u32 {
+    pub fn reg(&self, index: usize) -> &u32 {
         &self.register_file[index]
     }
 
-    pub fn read_memory(self: &mut Self, address: usize) -> &u32 {
+    pub fn read_memory(&self, address: usize) -> &u32 {
         &0
     }
 
-    pub fn write_memory(self: &mut Self, address: usize, val: u32) {}
+    pub fn write_memory(&mut self, address: usize, val: u32) {}
 
-    pub fn set_flags(self: &mut Self, flag: CpsrFlag, set: bool) {
+    pub fn set_flags(&mut self, flag: CpsrFlag, set: bool) {
         if set {
-            self.regs()[EmulatorState::CPSR] |= 1 << flag as u32;
+            self.regs_mut()[EmulatorState::CPSR] |= 1 << flag as u32;
         } else {
-            self.regs()[EmulatorState::CPSR] &= !(1 << flag as u32);
+            self.regs_mut()[EmulatorState::CPSR] &= !(1 << flag as u32);
         }
     }
 
-    pub fn print_state(self: &Self) {
+    pub fn print_state(&self) {
         println!("Registers:");
         for (index, contents) in self.register_file.iter().enumerate() {
             match index {
