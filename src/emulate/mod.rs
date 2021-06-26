@@ -1,6 +1,6 @@
 mod decode;
 mod execute;
-mod machine;
+mod fetch;
 mod state;
 mod utils;
 
@@ -26,14 +26,20 @@ pub fn run_pipeline(state: &mut state::EmulatorState) -> Result<()> {
         }
 
         // fetch
-        // pipeline.fetched = Some(fetch::fetch_next(state)?);
+        state.pipeline_mut().fetched = Some(fetch::fetch(state)?);
     }
 }
 
 pub fn run(filename: &String) -> Result<()> {
+    // Read binary from file
     let bytes: Vec<u8> = fs::read(filename)?;
+
+    // Create emulator and load binary
     let mut emulator = state::EmulatorState::with_memory(bytes);
+
+    // Run emulator
     run_pipeline(&mut emulator)?;
     emulator.print_state();
+
     Ok(())
 }

@@ -64,11 +64,14 @@ impl EmulatorState {
         &self.register_file[index]
     }
 
-    pub fn read_memory(&self, address: usize) -> &u32 {
-        &0
+    pub fn read_memory(&self, address: usize) -> Result<u32> {
+        let bytes: [u8; 4] = self.memory[address..address + 4].try_into()?;
+        Ok(utils::to_u32_reg(&bytes))
     }
 
-    pub fn write_memory(&mut self, address: usize, val: u32) {}
+    pub fn write_memory(&mut self, address: usize, val: u32) {
+        utils::to_u8_slice(val, &self.memory[address..address + 4])
+    }
 
     pub fn set_flags(&mut self, flag: CpsrFlag, set: bool) {
         if set {

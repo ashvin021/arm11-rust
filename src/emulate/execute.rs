@@ -125,7 +125,7 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
     if mem_address <= MEMORY_SIZE {
         if load {
             // Load the memory to R[rd]
-            state.regs_mut()[rd as usize] = *state.read_memory(mem_address);
+            state.regs_mut()[rd as usize] = state.read_memory(mem_address)?;
         } else {
             // Stores the value at Mem[rd]
             state.write_memory(mem_address, state.regs_mut()[rd as usize])
