@@ -22,7 +22,7 @@ pub fn run_pipeline(state: &mut state::EmulatorState) -> Result<()> {
 
         // decode
         if let Some(word) = state.pipeline_mut().fetched {
-            // pipeline.decoded = Some(decode::decode(word)?);
+            state.pipeline_mut().decoded = Some(decode::decode(&word)?);
         }
 
         // fetch

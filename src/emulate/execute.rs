@@ -9,7 +9,7 @@ use super::state::*;
 use super::utils;
 
 pub fn execute(state: &mut EmulatorState, instr: ConditionalInstruction) -> Result<()> {
-    if !instr.satisfies_cpsr(state.reg(EmulatorState::CPSR)) {
+    if !instr.satisfies_cpsr(state.read_reg(EmulatorState::CPSR)) {
         return Ok(());
     }
 
@@ -18,12 +18,12 @@ pub fn execute(state: &mut EmulatorState, instr: ConditionalInstruction) -> Resu
         Multiply(multiply) => execute_multiply(state, multiply),
         Transfer(transfer) => execute_transfer(state, transfer),
         Branch(branch) => execute_branch(state, branch),
+        Halt => panic!("Can't execute halt"),
     }
 }
 
 fn execute_processing(state: &mut EmulatorState, instr: InstructionProcessing) -> Result<()> {
     let InstructionProcessing {
-        cond,
         opcode,
         set_cond,
         rn,
@@ -32,8 +32,8 @@ fn execute_processing(state: &mut EmulatorState, instr: InstructionProcessing) -
     } = instr;
 
     // Get operands
-    let op1 = state.reg(rn as usize);
-    let (op2, bs_carry_out) = barrel_shifter(operand2, state.regs_mut());
+    let op1 = state.read_reg(rn as usize);
+    let (op2, bs_carry_out) = barrel_shifter(operand2, state.regs());
 
     // Perform process
     let (result, carry_out) =
@@ -43,7 +43,7 @@ fn execute_processing(state: &mut EmulatorState, instr: InstructionProcessing) -
     match opcode {
         ProcessingOpcode::Cmp | ProcessingOpcode::Teq | ProcessingOpcode::Tst => (),
         _ => {
-            state.regs_mut()[rd as usize] = result as u32;
+            state.write_reg(rd as usize, result as u32);
         }
     }
 
@@ -72,14 +72,14 @@ fn execute_multiply(state: &mut EmulatorState, instr: InstructionMultiply) -> Re
     } = instr;
 
     // Perform multiplication
-    let mut result: u32 = state.reg(rm as usize) * state.reg(rs as usize);
+    let mut result: u32 = state.read_reg(rm as usize) * state.read_reg(rs as usize);
 
     if accumulate {
-        result += state.reg(rn as usize);
+        result += state.read_reg(rn as usize);
     }
 
     // Save result
-    state.regs_mut()[rd as usize] = result;
+    state.write_reg(rd as usize, result);
 
     // Set flags
     if set_cond {
@@ -106,11 +106,11 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
     // Calculate offset
     let interpreted_offset: i32 = match offset {
         Operand2::ConstantShift(rotate, imm) => i32::from(rotate) << 8 | i32::from(imm),
-        _ => barrel_shifter(offset, state.regs_mut()).0 as i32,
+        _ => barrel_shifter(offset, state.regs()).0 as i32,
     };
 
     // Calculate memory address
-    let mut mem_address: usize = (*state.reg(rn as usize)).try_into()?;
+    let mut mem_address: usize = (*state.read_reg(rn as usize)).try_into()?;
 
     // Handle pre-indexing
     if is_preindexed {
@@ -125,10 +125,10 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
     if mem_address <= MEMORY_SIZE {
         if load {
             // Load the memory to R[rd]
-            state.regs_mut()[rd as usize] = state.read_memory(mem_address)?;
+            state.write_reg(rd as usize, state.read_memory(mem_address)?);
         } else {
             // Stores the value at Mem[rd]
-            state.write_memory(mem_address, state.regs_mut()[rd as usize])
+            state.write_memory(mem_address, state.regs()[rd as usize])
         }
     } else {
         println!(
@@ -139,22 +139,24 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
 
     // Handle post-indexing
     if !is_preindexed {
-        state.regs_mut()[rn as usize] += if up_bit {
+        let mut rn_val = *state.read_reg(rn as usize);
+        rn_val += if up_bit {
             interpreted_offset
         } else {
             -1 * interpreted_offset
         } as u32;
+        state.write_reg(rn as usize, rn_val);
     }
 
     Ok(())
 }
 
 fn execute_branch(state: &mut EmulatorState, instr: InstructionBranch) -> Result<()> {
-    let InstructionBranch { cond, offset } = instr;
+    let InstructionBranch { offset } = instr;
 
     // Update the PC
-    let PC = &mut state.regs_mut()[EmulatorState::PC];
-    *PC = (*PC as i32 + utils::signed_24_to_32(offset)) as u32;
+    let PC = &mut state.read_reg(EmulatorState::PC);
+    *PC = &((**PC as i32 + utils::signed_24_to_32(offset)) as u32);
 
     // Flush the pipeline
     state.pipeline_mut().flush();
@@ -171,13 +173,13 @@ impl ConditionalInstruction {
         let v: bool = utils::extract_bit(cpsr_contents, 28);
 
         match self.cond {
-            Eq => z,
-            Ne => !z,
-            Ge => n == v,
-            Lt => n != v,
-            Gt => !z && (n == v),
-            Le => z || (n != v),
-            Al => true,
+            ConditionCode::Eq => z,
+            ConditionCode::Ne => !z,
+            ConditionCode::Ge => n == v,
+            ConditionCode::Lt => n != v,
+            ConditionCode::Gt => !z && (n == v),
+            ConditionCode::Le => z || (n != v),
+            ConditionCode::Al => true,
         }
     }
 }

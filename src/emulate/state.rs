@@ -42,7 +42,7 @@ impl EmulatorState {
         }
     }
 
-    pub fn with_memory(bytes: Vec<u8>) -> Self {
+    pub fn with_memory(mut bytes: Vec<u8>) -> Self {
         bytes.resize(MEMORY_SIZE, 0);
         EmulatorState {
             memory: bytes.try_into().unwrap(),
@@ -55,13 +55,17 @@ impl EmulatorState {
         &mut self.pipeline
     }
 
-    pub fn regs_mut(&mut self) -> &mut [u32; NUM_REGS] {
-        &mut self.register_file
+    pub fn regs(&self) -> &[u32; NUM_REGS] {
+        &self.register_file
     }
 
     // quick ways to read PC and CPSR
-    pub fn reg(&self, index: usize) -> &u32 {
+    pub fn read_reg(&self, index: usize) -> &u32 {
         &self.register_file[index]
+    }
+
+    pub fn write_reg(&mut self, index: usize, val: u32) {
+        self.register_file[index] = val;
     }
 
     pub fn read_memory(&self, address: usize) -> Result<u32> {
@@ -70,14 +74,15 @@ impl EmulatorState {
     }
 
     pub fn write_memory(&mut self, address: usize, val: u32) {
-        utils::to_u8_slice(val, &self.memory[address..address + 4])
+        let bytes = utils::to_u8_slice(val);
+        self.memory[address..address + 4].clone_from_slice(&bytes[..]);
     }
 
     pub fn set_flags(&mut self, flag: CpsrFlag, set: bool) {
         if set {
-            self.regs_mut()[EmulatorState::CPSR] |= 1 << flag as u32;
+            self.register_file[EmulatorState::CPSR] |= 1 << flag as u32;
         } else {
-            self.regs_mut()[EmulatorState::CPSR] &= !(1 << flag as u32);
+            self.register_file[EmulatorState::CPSR] &= !(1 << flag as u32);
         }
     }
 
