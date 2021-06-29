@@ -11,9 +11,10 @@ use super::types::*;
 pub fn run_pipeline(state: &mut state::EmulatorState) -> Result<()> {
     loop {
         // execute
-        if let Some(to_execute) = state.pipeline_mut().decoded {
+        if let Some(to_execute) = state.pipeline.decoded {
             // check: is halt?
             if let Instruction::Halt = to_execute.instruction {
+                println!("halted");
                 return Ok(());
             }
             // execute otherwise
@@ -21,12 +22,15 @@ pub fn run_pipeline(state: &mut state::EmulatorState) -> Result<()> {
         }
 
         // decode
-        if let Some(word) = state.pipeline_mut().fetched {
+        if let Some(word) = state.pipeline.fetched {
+            println!("before decode");
             state.pipeline_mut().decoded = Some(decode::decode(&word)?);
+            println!("{:?}", state.pipeline.decoded);
         }
 
         // fetch
-        state.pipeline_mut().fetched = Some(fetch::fetch(state)?);
+        println!("before fetch");
+        state.pipeline.fetched = Some(fetch::fetch(state)?);
     }
 }
 

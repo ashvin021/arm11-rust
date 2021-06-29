@@ -8,7 +8,7 @@ use super::utils;
 pub struct EmulatorState {
     memory: [u8; MEMORY_SIZE],
     register_file: [u32; NUM_REGS],
-    pipeline: Pipeline,
+    pub pipeline: Pipeline,
 }
 
 pub struct Pipeline {

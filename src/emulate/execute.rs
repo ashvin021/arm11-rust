@@ -13,6 +13,8 @@ pub fn execute(state: &mut EmulatorState, instr: ConditionalInstruction) -> Resu
         return Ok(());
     }
 
+    println!("executing");
+
     match instr.instruction {
         Processing(processing) => execute_processing(state, processing),
         Multiply(multiply) => execute_multiply(state, multiply),
@@ -155,8 +157,8 @@ fn execute_branch(state: &mut EmulatorState, instr: InstructionBranch) -> Result
     let InstructionBranch { offset } = instr;
 
     // Update the PC
-    let PC = &mut state.read_reg(EmulatorState::PC);
-    *PC = &((**PC as i32 + utils::signed_24_to_32(offset)) as u32);
+    let pc = &mut state.read_reg(EmulatorState::PC);
+    *pc = &((**pc as i32 + utils::signed_24_to_32(offset)) as u32);
 
     // Flush the pipeline
     state.pipeline_mut().flush();
@@ -205,6 +207,9 @@ pub fn barrel_shifter(op2: Operand2, register_file: &[u32; 17]) -> (u32, bool) {
 }
 
 pub fn shift(to_shift: u32, shift_amt: u8, shift_type: ShiftType) -> (u32, bool) {
+    if shift_amt == 0 {
+        return (to_shift, false);
+    };
     match shift_type {
         ShiftType::Lsl => to_shift.overflowing_shl(shift_amt as u32),
         ShiftType::Lsr => to_shift.overflowing_shr(shift_amt as u32),

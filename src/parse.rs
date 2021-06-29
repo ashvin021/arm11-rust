@@ -1,4 +1,3 @@
-/*
 use nom::error::{ErrorKind, ParseError};
 use nom::{ErrorConvert, IResult};
 
@@ -43,7 +42,7 @@ impl<I> ErrorConvert<ArmNomError<I>> for ArmNomError<(I, usize)> {
     fn convert(self) -> ArmNomError<I> {
         ArmNomError {
             kind: self.kind.convert(),
-            backtrace: self.backtrace.iter().map(|k| k.convert()).collect(),
+            backtrace: Vec::new(),
         }
     }
 }
@@ -57,4 +56,3 @@ impl<I> ErrorConvert<ArmNomErrorKind<I>> for ArmNomErrorKind<(I, usize)> {
 }
 
 pub type NomResult<I, T> = IResult<I, T, ArmNomError<I>>;
-*/

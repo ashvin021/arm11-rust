@@ -16,9 +16,8 @@ pub fn to_u32_reg(bytes: &[u8; 4]) -> u32 {
 
 pub fn to_u8_slice(word: u32) -> [u8; 4] {
     let mut bytes = [0; 4];
-    let mask = mask(8);
     for i in 0..4 {
-        bytes[i] = ((word & mask) >> (8 * i)) as u8;
+        bytes[i] = (word >> (8 * i)) as u8;
     }
     bytes
 }
@@ -40,5 +39,16 @@ pub fn signed_24_to_32(num: i32) -> i32 {
         num | !mask(24) as i32
     } else {
         num
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_to_u8_slice() {
+        assert_eq!(&[0x2a, 0x01, 0x0, 0x0][..], &to_u8_slice(0x12a)[..]);
+        assert_eq!(&[0xfa, 0x31, 0x21, 0x12][..], &to_u8_slice(0x122131fa)[..]);
     }
 }

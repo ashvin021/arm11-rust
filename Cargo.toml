@@ -8,4 +8,5 @@ edition = "2018"
 
 [dependencies]
 nom = "6.1.2"
-enum_primitive = "*"
+enum-primitive-derive = "^0.1"
+num-traits = "^0.1"

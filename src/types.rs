@@ -3,7 +3,7 @@ use std::{error, result};
 
 pub type Result<T> = result::Result<T, Box<dyn error::Error>>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InstructionProcessing {
     pub opcode: ProcessingOpcode,
     pub set_cond: bool,
@@ -12,7 +12,7 @@ pub struct InstructionProcessing {
     pub operand2: Operand2,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InstructionMultiply {
     pub accumulate: bool,
     pub set_cond: bool,
@@ -22,7 +22,7 @@ pub struct InstructionMultiply {
     pub rm: u8,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InstructionTransfer {
     pub is_preindexed: bool,
     pub up_bit: bool,
@@ -32,12 +32,12 @@ pub struct InstructionTransfer {
     pub offset: Operand2,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InstructionBranch {
     pub offset: i32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Instruction {
     Processing(InstructionProcessing),
     Multiply(InstructionMultiply),
@@ -46,20 +46,20 @@ pub enum Instruction {
     Halt,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ConditionalInstruction {
     pub instruction: Instruction,
     pub cond: ConditionCode,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Operand2 {
     ConstantShift(u8, u8),
     ConstantShiftedReg(u8, ShiftType, u8),
     ShiftedReg(u8, ShiftType, u8),
 }
 
-#[derive(Debug, Clone, Copy, Primitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Primitive)]
 pub enum ShiftType {
     Lsl = 0x0,
     Lsr = 0x1,
@@ -67,7 +67,7 @@ pub enum ShiftType {
     Ror = 0x3,
 }
 
-#[derive(Debug, Clone, Copy, Primitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Primitive)]
 pub enum ProcessingOpcode {
     And = 0x0,
     Eor = 0x1,
@@ -81,7 +81,7 @@ pub enum ProcessingOpcode {
     Mov = 0xd,
 }
 
-#[derive(Debug, Clone, Copy, Primitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Primitive)]
 pub enum ConditionCode {
     Eq = 0x0,
     Ne = 0x1,
