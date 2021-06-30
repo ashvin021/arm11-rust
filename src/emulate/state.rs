@@ -90,14 +90,18 @@ impl EmulatorState {
                         index, *contents as i32, contents
                     )
                 }
-                15 => println!("PC  : {: >10} (0x{:0>8x})", *contents as i32, contents),
-                16 => println!("CPSR: {: >10} (0x{:0>8x})", *contents as i32, contents),
+                EmulatorState::PC => {
+                    println!("PC  : {: >10} (0x{:0>8x})", *contents as i32, contents)
+                }
+                EmulatorState::CPSR => {
+                    println!("CPSR: {: >10} (0x{:0>8x})", *contents as i32, contents)
+                }
                 _ => (),
             }
         }
         println!("Non-zero memory:");
-        for i in (0..65535).step_by(4) {
-            if i + 4 >= 65535 {
+        for i in (0..MEMORY_SIZE).step_by(4) {
+            if i + 4 >= MEMORY_SIZE {
                 continue;
             }
             let bytes: [u8; 4] = self.memory[i..i + 4]

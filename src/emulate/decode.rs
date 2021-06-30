@@ -16,9 +16,7 @@ pub fn decode(instr: &u32) -> Result<ConditionalInstruction> {
         .1)
 }
 
-fn parse_conditional_instruction<'a>(
-    input: &'a [u8],
-) -> NomResult<&'a [u8], ConditionalInstruction> {
+fn parse_conditional_instruction(input: &[u8]) -> NomResult<&[u8], ConditionalInstruction> {
     bits(map(
         tuple((
             parse_cond,
@@ -67,6 +65,7 @@ fn parse_processing(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruct
 }
 
 fn parse_transfer(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
+    // Check if its an immediate or shifted register transfer
     let is_shifted_r = peek(preceded(take::<_, u32, _, _>(2u32), take_bool))(input)?.1;
     map(
         tuple((
@@ -151,6 +150,7 @@ fn parse_operand2_immediate(input: (&[u8], usize)) -> NomResult<(&[u8], usize), 
 }
 
 fn parse_operand2_shifted(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {
+    // Check if its an constant shifted register or a shifted register
     let is_shifted_r = peek(preceded(take::<_, u8, _, _>(7u8), take_bool))(input)?.1;
     map(
         tuple((
