@@ -3,8 +3,6 @@ use std::convert::TryInto;
 use crate::constants::*;
 use crate::types::*;
 
-use super::utils;
-
 pub struct EmulatorState {
     memory: [u8; MEMORY_SIZE],
     register_file: [u32; NUM_REGS],
@@ -51,10 +49,6 @@ impl EmulatorState {
         }
     }
 
-    pub fn pipeline_mut(&mut self) -> &mut Pipeline {
-        &mut self.pipeline
-    }
-
     pub fn regs(&self) -> &[u32; NUM_REGS] {
         &self.register_file
     }
@@ -70,11 +64,11 @@ impl EmulatorState {
 
     pub fn read_memory(&self, address: usize) -> Result<u32> {
         let bytes: [u8; 4] = self.memory[address..address + 4].try_into()?;
-        Ok(utils::to_u32_reg(&bytes))
+        Ok(u32::from_le_bytes(bytes))
     }
 
     pub fn write_memory(&mut self, address: usize, val: u32) {
-        let bytes = utils::to_u8_slice(val);
+        let bytes = val.to_le_bytes();
         self.memory[address..address + 4].clone_from_slice(&bytes[..]);
     }
 
@@ -90,9 +84,14 @@ impl EmulatorState {
         println!("Registers:");
         for (index, contents) in self.register_file.iter().enumerate() {
             match index {
-                0..=12 => println!("${: <3}: {: >10} (0x{:0>8x})", index, contents, contents),
-                15 => println!("PC  : {: >10} (0x{:0>8x})", contents, contents),
-                16 => println!("CPSR: {: >10} (0x{:0>8x})", contents, contents),
+                0..=12 => {
+                    println!(
+                        "${: <3}: {: >10} (0x{:0>8x})",
+                        index, *contents as i32, contents
+                    )
+                }
+                15 => println!("PC  : {: >10} (0x{:0>8x})", *contents as i32, contents),
+                16 => println!("CPSR: {: >10} (0x{:0>8x})", *contents as i32, contents),
                 _ => (),
             }
         }
@@ -104,7 +103,7 @@ impl EmulatorState {
             let bytes: [u8; 4] = self.memory[i..i + 4]
                 .try_into()
                 .expect("slice with incorrect length");
-            let word = utils::to_u32_print(&bytes);
+            let word = i32::from_be_bytes(bytes);
 
             if word == 0 {
                 continue;

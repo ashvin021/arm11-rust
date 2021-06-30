@@ -13,8 +13,6 @@ pub fn execute(state: &mut EmulatorState, instr: ConditionalInstruction) -> Resu
         return Ok(());
     }
 
-    println!("executing");
-
     match instr.instruction {
         Processing(processing) => execute_processing(state, processing),
         Multiply(multiply) => execute_multiply(state, multiply),
@@ -36,7 +34,6 @@ fn execute_processing(state: &mut EmulatorState, instr: InstructionProcessing) -
     // Get operands
     let op1 = state.read_reg(rn as usize);
     let (op2, bs_carry_out) = barrel_shifter(operand2, state.regs());
-
     // Perform process
     let (result, carry_out) =
         perform_processing_operation((*op1).try_into()?, op2.try_into()?, opcode);
@@ -134,7 +131,7 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
         }
     } else {
         println!(
-            "Error: Out of bounds memory access at 0x{:0>8x}",
+            "Error: Out of bounds memory access at address 0x{:0>8x}",
             mem_address
         );
     }
@@ -157,11 +154,12 @@ fn execute_branch(state: &mut EmulatorState, instr: InstructionBranch) -> Result
     let InstructionBranch { offset } = instr;
 
     // Update the PC
-    let pc = &mut state.read_reg(EmulatorState::PC);
-    *pc = &((**pc as i32 + utils::signed_24_to_32(offset)) as u32);
+    let mut pc = *state.read_reg(EmulatorState::PC);
+    pc = (pc as i32 + utils::signed_24_to_32(offset << 2)) as u32;
+    state.write_reg(EmulatorState::PC, pc);
 
     // Flush the pipeline
-    state.pipeline_mut().flush();
+    state.pipeline.flush();
 
     Ok(())
 }
@@ -189,7 +187,7 @@ impl ConditionalInstruction {
 pub fn barrel_shifter(op2: Operand2, register_file: &[u32; 17]) -> (u32, bool) {
     let (shift_amt, to_shift, shift_type): (u8, u32, ShiftType) = match op2 {
         Operand2::ConstantShift(shift_amt, to_shift) => {
-            (shift_amt, to_shift as u32, ShiftType::Ror)
+            (2 * shift_amt, u32::from(to_shift), ShiftType::Ror)
         }
         Operand2::ConstantShiftedReg(constant_shift, shift_type, reg_to_shift) => (
             constant_shift,
@@ -218,7 +216,7 @@ pub fn shift(to_shift: u32, shift_amt: u8, shift_type: ShiftType) -> (u32, bool)
             (res as u32, cout)
         }
         ShiftType::Ror => (
-            to_shift.rotate_right(shift_amt as u32),
+            to_shift.rotate_right(u32::from(shift_amt)),
             utils::extract_bit(&to_shift, shift_amt - 1),
         ),
     }
@@ -230,7 +228,7 @@ pub fn perform_processing_operation(op1: i32, op2: i32, opcode: ProcessingOpcode
         ProcessingOpcode::Eor | ProcessingOpcode::Teq => (op1 ^ op2, false),
         ProcessingOpcode::Sub => op1.overflowing_sub(op2),
         ProcessingOpcode::Rsb => op2.overflowing_sub(op1),
-        ProcessingOpcode::Add => op1.overflowing_add(op1),
+        ProcessingOpcode::Add => op1.overflowing_add(op2),
         ProcessingOpcode::Cmp => (op1 - op2, !(op1 < op2)),
         ProcessingOpcode::Orr => (op1 | op2, false),
         ProcessingOpcode::Mov => (op2, false),

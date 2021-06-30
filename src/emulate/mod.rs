@@ -14,7 +14,6 @@ pub fn run_pipeline(state: &mut state::EmulatorState) -> Result<()> {
         if let Some(to_execute) = state.pipeline.decoded {
             // check: is halt?
             if let Instruction::Halt = to_execute.instruction {
-                println!("halted");
                 return Ok(());
             }
             // execute otherwise
@@ -23,13 +22,10 @@ pub fn run_pipeline(state: &mut state::EmulatorState) -> Result<()> {
 
         // decode
         if let Some(word) = state.pipeline.fetched {
-            println!("before decode");
-            state.pipeline_mut().decoded = Some(decode::decode(&word)?);
-            println!("{:?}", state.pipeline.decoded);
+            state.pipeline.decoded = Some(decode::decode(&word)?);
         }
 
         // fetch
-        println!("before fetch");
         state.pipeline.fetched = Some(fetch::fetch(state)?);
     }
 }
