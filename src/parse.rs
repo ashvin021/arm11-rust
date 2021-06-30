@@ -40,9 +40,13 @@ impl<I> From<ArmNomError<I>> for nom::Err<ArmNomError<I>> {
 
 impl<I> ErrorConvert<ArmNomError<I>> for ArmNomError<(I, usize)> {
     fn convert(self) -> ArmNomError<I> {
+        let mut new_backtrace = Vec::new();
+        for k in self.backtrace {
+            new_backtrace.push(k.convert());
+        }
         ArmNomError {
             kind: self.kind.convert(),
-            backtrace: Vec::new(),
+            backtrace: new_backtrace,
         }
     }
 }

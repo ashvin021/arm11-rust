@@ -35,8 +35,7 @@ fn execute_processing(state: &mut EmulatorState, instr: InstructionProcessing) -
     let op1 = state.read_reg(rn as usize);
     let (op2, bs_carry_out) = barrel_shifter(operand2, state.regs());
     // Perform process
-    let (result, carry_out) =
-        perform_processing_operation((*op1).try_into()?, op2.try_into()?, opcode);
+    let (result, carry_out) = perform_processing_operation((*op1) as i32, op2 as i32, opcode);
 
     // Save result
     match opcode {
@@ -209,10 +208,10 @@ pub fn shift(to_shift: u32, shift_amt: u8, shift_type: ShiftType) -> (u32, bool)
         return (to_shift, false);
     };
     match shift_type {
-        ShiftType::Lsl => to_shift.overflowing_shl(shift_amt as u32),
-        ShiftType::Lsr => to_shift.overflowing_shr(shift_amt as u32),
+        ShiftType::Lsl => to_shift.overflowing_shl(u32::from(shift_amt)),
+        ShiftType::Lsr => to_shift.overflowing_shr(u32::from(shift_amt)),
         ShiftType::Asr => {
-            let (res, cout) = (to_shift as i32).overflowing_shr(shift_amt as u32);
+            let (res, cout) = (to_shift as i32).overflowing_shr(u32::from(shift_amt));
             (res as u32, cout)
         }
         ShiftType::Ror => (
