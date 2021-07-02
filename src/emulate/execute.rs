@@ -48,12 +48,12 @@ fn execute_processing(state: &mut EmulatorState, instr: InstructionProcessing) -
     // Set flags
     if set_cond {
         let c_flag = !bs_carry_out & carry_out | carry_out;
-        state.set_flags(CpsrFlag::CFlag, c_flag);
+        state.set_flags(CpsrFlag::C, c_flag);
         state.set_flags(
-            CpsrFlag::NFlag,
-            utils::extract_bit(&(result as u32), CpsrFlag::NFlag as u8),
+            CpsrFlag::N,
+            utils::extract_bit(&(result as u32), CpsrFlag::N as u8),
         );
-        state.set_flags(CpsrFlag::ZFlag, result == 0);
+        state.set_flags(CpsrFlag::Z, result == 0);
     }
 
     Ok(())
@@ -81,11 +81,8 @@ fn execute_multiply(state: &mut EmulatorState, instr: InstructionMultiply) -> Re
 
     // Set flags
     if set_cond {
-        state.set_flags(
-            CpsrFlag::NFlag,
-            utils::extract_bit(&result, CpsrFlag::NFlag as u8),
-        );
-        state.set_flags(CpsrFlag::ZFlag, result == 0);
+        state.set_flags(CpsrFlag::N, utils::extract_bit(&result, CpsrFlag::N as u8));
+        state.set_flags(CpsrFlag::Z, result == 0);
     }
 
     Ok(())
@@ -115,7 +112,7 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
         mem_address += if up_bit {
             interpreted_offset
         } else {
-            -1 * interpreted_offset
+            -interpreted_offset
         } as usize;
     }
 
@@ -141,7 +138,7 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
         rn_val += if up_bit {
             interpreted_offset
         } else {
-            -1 * interpreted_offset
+            -interpreted_offset
         } as u32;
         state.write_reg(rn as usize, rn_val);
     }
@@ -228,7 +225,7 @@ pub fn perform_processing_operation(op1: i32, op2: i32, opcode: ProcessingOpcode
         ProcessingOpcode::Sub => op1.overflowing_sub(op2),
         ProcessingOpcode::Rsb => op2.overflowing_sub(op1),
         ProcessingOpcode::Add => op1.overflowing_add(op2),
-        ProcessingOpcode::Cmp => (op1 - op2, !(op1 < op2)),
+        ProcessingOpcode::Cmp => (op1 - op2, op1 >= op2),
         ProcessingOpcode::Orr => (op1 | op2, false),
         ProcessingOpcode::Mov => (op2, false),
     }

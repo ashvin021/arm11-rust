@@ -132,15 +132,15 @@ fn take_bool(input: (&[u8], usize)) -> NomResult<(&[u8], usize), bool> {
 }
 
 fn parse_opcode(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ProcessingOpcode> {
-    map_opt(take(4u8), |opcode: u8| ProcessingOpcode::from_u8(opcode))(input)
+    map_opt(take(4u8), ProcessingOpcode::from_u8)(input)
 }
 
 fn parse_shift_type(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ShiftType> {
-    map_opt(take(2u8), |shift: u8| ShiftType::from_u8(shift))(input)
+    map_opt(take(2u8), ShiftType::from_u8)(input)
 }
 
 fn parse_cond(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ConditionCode> {
-    map_opt(take(4u8), |cond: u8| ConditionCode::from_u8(cond))(input)
+    map_opt(take(4u8), ConditionCode::from_u8)(input)
 }
 
 fn parse_operand2_immediate(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {

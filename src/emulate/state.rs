@@ -28,6 +28,12 @@ impl Pipeline {
     }
 }
 
+impl Default for Pipeline {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EmulatorState {
     pub const PC: usize = 15;
     pub const CPSR: usize = 16;
@@ -114,5 +120,11 @@ impl EmulatorState {
             }
             println!("0x{:0>8x}: 0x{:0>8x}", i, word);
         }
+    }
+}
+
+impl Default for EmulatorState {
+    fn default() -> Self {
+        Self::new()
     }
 }

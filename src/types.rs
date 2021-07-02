@@ -93,8 +93,8 @@ pub enum ConditionCode {
 }
 
 pub enum CpsrFlag {
-    VFlag = 28,
-    CFlag = 29,
-    ZFlag = 30,
-    NFlag = 31,
+    V = 28,
+    C = 29,
+    Z = 30,
+    N = 31,
 }

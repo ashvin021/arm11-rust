@@ -8,6 +8,20 @@ use std::fs;
 
 use super::types::*;
 
+pub fn run(filename: &str) -> Result<()> {
+    // Read binary from file
+    let bytes: Vec<u8> = fs::read(filename)?;
+
+    // Create emulator and load binary
+    let mut emulator = state::EmulatorState::with_memory(bytes);
+
+    // Run emulator
+    run_pipeline(&mut emulator)?;
+    emulator.print_state();
+
+    Ok(())
+}
+
 pub fn run_pipeline(state: &mut state::EmulatorState) -> Result<()> {
     loop {
         // execute
@@ -28,18 +42,4 @@ pub fn run_pipeline(state: &mut state::EmulatorState) -> Result<()> {
         // fetch
         state.pipeline.fetched = Some(fetch::fetch(state)?);
     }
-}
-
-pub fn run(filename: &String) -> Result<()> {
-    // Read binary from file
-    let bytes: Vec<u8> = fs::read(filename)?;
-
-    // Create emulator and load binary
-    let mut emulator = state::EmulatorState::with_memory(bytes);
-
-    // Run emulator
-    run_pipeline(&mut emulator)?;
-    emulator.print_state();
-
-    Ok(())
 }
