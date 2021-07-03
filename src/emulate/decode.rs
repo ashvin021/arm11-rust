@@ -11,45 +11,45 @@ use num_traits::FromPrimitive;
 use crate::{parse::*, types::*};
 
 pub fn decode(instr: &u32) -> Result<ConditionalInstruction> {
-    Ok(parse_conditional_instruction(&instr.to_be_bytes()[..])
+    Ok(decode_conditional_instruction(&instr.to_be_bytes()[..])
         .map_err(|e| format!("{:#?}", e))?
         .1)
 }
 
-fn parse_conditional_instruction(input: &[u8]) -> NomResult<&[u8], ConditionalInstruction> {
+fn decode_conditional_instruction(input: &[u8]) -> NomResult<&[u8], ConditionalInstruction> {
     bits(map(
         tuple((
-            parse_cond,
+            decode_cond,
             alt((
-                parse_halt,
-                parse_multiply,
-                parse_processing,
-                parse_transfer,
-                parse_branch,
+                decode_halt,
+                decode_multiply,
+                decode_processing,
+                decode_transfer,
+                decode_branch,
             )),
         )),
         |(cond, instruction)| ConditionalInstruction { instruction, cond },
     ))(input)
 }
 
-fn parse_halt(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
+fn decode_halt(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
     map(tag(0, 28u32), |_| Instruction::Halt)(input)
 }
 
-fn parse_processing(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
+fn decode_processing(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
     let is_immediate = peek(preceded(take::<_, u32, _, _>(2u32), take_bool))(input)?.1;
     map(
         tuple((
             tag(0, 2u8),
             take_bool,
-            parse_opcode,
+            decode_opcode,
             take_bool,
             take(4u8),
             take(4u8),
             if is_immediate {
-                parse_operand2_immediate
+                decode_operand2_immediate
             } else {
-                parse_operand2_shifted
+                decode_operand2_shifted
             },
         )),
         |(_, _, opcode, set_cond, rn, rd, operand2)| {
@@ -64,7 +64,7 @@ fn parse_processing(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruct
     )(input)
 }
 
-fn parse_transfer(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
+fn decode_transfer(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
     // Check if its an immediate or shifted register transfer
     let is_shifted_r = peek(preceded(take::<_, u32, _, _>(2u32), take_bool))(input)?.1;
     map(
@@ -78,9 +78,9 @@ fn parse_transfer(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instructio
             take(4u8),
             take(4u8),
             if is_shifted_r {
-                parse_operand2_shifted
+                decode_operand2_shifted
             } else {
-                parse_operand2_immediate
+                decode_operand2_immediate
             },
         )),
         |(_, _, is_preindexed, up_bit, _, load, rn, rd, offset)| {
@@ -96,7 +96,7 @@ fn parse_transfer(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instructio
     )(input)
 }
 
-fn parse_multiply(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
+fn decode_multiply(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
     map(
         tuple((
             tag(0, 6u8),
@@ -121,7 +121,7 @@ fn parse_multiply(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instructio
     )(input)
 }
 
-fn parse_branch(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
+fn decode_branch(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
     map(tuple((tag(0xa, 4u8), take(24u32))), |(_, offset)| {
         Instruction::Branch(InstructionBranch { offset })
     })(input)
@@ -131,25 +131,25 @@ fn take_bool(input: (&[u8], usize)) -> NomResult<(&[u8], usize), bool> {
     map(take(1u8), |i: u8| i == 1)(input)
 }
 
-fn parse_opcode(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ProcessingOpcode> {
+fn decode_opcode(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ProcessingOpcode> {
     map_opt(take(4u8), ProcessingOpcode::from_u8)(input)
 }
 
-fn parse_shift_type(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ShiftType> {
+fn decode_shift_type(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ShiftType> {
     map_opt(take(2u8), ShiftType::from_u8)(input)
 }
 
-fn parse_cond(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ConditionCode> {
+fn decode_cond(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ConditionCode> {
     map_opt(take(4u8), ConditionCode::from_u8)(input)
 }
 
-fn parse_operand2_immediate(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {
+fn decode_operand2_immediate(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {
     map(tuple((take(4u8), take(8u8))), |(shift_amt, to_shift)| {
         Operand2::ConstantShift(shift_amt, to_shift)
     })(input)
 }
 
-fn parse_operand2_shifted(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {
+fn decode_operand2_shifted(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {
     // Check if its an constant shifted register or a shifted register
     let is_shifted_r = peek(preceded(take::<_, u8, _, _>(7u8), take_bool))(input)?.1;
     map(
@@ -157,9 +157,9 @@ fn parse_operand2_shifted(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Op
             alt((
                 pair(
                     terminated(take::<_, u8, _, _>(4u8), tag(0, 1u8)),
-                    terminated(parse_shift_type, tag(1, 1u8)),
+                    terminated(decode_shift_type, tag(1, 1u8)),
                 ),
-                pair(take(5u8), terminated(parse_shift_type, tag(0, 1u8))),
+                pair(take(5u8), terminated(decode_shift_type, tag(0, 1u8))),
             )),
             take(4u8),
         )),
@@ -178,37 +178,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_operand2_immediate() {
+    fn test_decode_operand2_immediate() {
         let bytes = 0x12a0u16.to_be_bytes();
         assert_eq!(
-            bits(parse_operand2_immediate)(&bytes[..])
-                .expect("operand2 parse failed")
+            bits(decode_operand2_immediate)(&bytes[..])
+                .expect("operand2 decode failed")
                 .1,
             Operand2::ConstantShift(0x1, 0x2a)
         );
     }
 
     #[test]
-    fn test_parse_operand2_shifted() {
+    fn test_decode_operand2_shifted() {
         let bytes = 0x12a0u16.to_be_bytes();
         assert_eq!(
-            bits(parse_operand2_shifted)(&bytes[..])
-                .expect("operand2 parse failed")
+            bits(decode_operand2_shifted)(&bytes[..])
+                .expect("operand2 decode failed")
                 .1,
             Operand2::ConstantShiftedReg(0x2, ShiftType::Lsr, 0xa)
         );
     }
 
     #[test]
-    fn test_parse_halt() {
+    fn test_decode_halt() {
         let bytes = 0u32.to_be_bytes();
         assert_eq!(
-            bits(parse_halt)(&bytes[..]).expect("parse halt failed").1,
+            bits(decode_halt)(&bytes[..]).expect("parse halt failed").1,
             Instruction::Halt
         );
         assert_eq!(
-            parse_conditional_instruction(&bytes[..])
-                .expect("parse conditional halt failed")
+            decode_conditional_instruction(&bytes[..])
+                .expect("decode conditional halt failed")
                 .1
                 .instruction,
             Instruction::Halt
@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_processing() {
+    fn test_decode_processing() {
         let bytes = 0xe3a01001u32.to_be_bytes();
         let expected = ConditionalInstruction {
             instruction: Instruction::Processing(InstructionProcessing {
@@ -230,15 +230,15 @@ mod tests {
         };
 
         assert_eq!(
-            parse_conditional_instruction(&bytes[..])
-                .expect("parse conditional processing failed")
+            decode_conditional_instruction(&bytes[..])
+                .expect("decode conditional processing failed")
                 .1,
             expected
         );
     }
 
     #[test]
-    fn test_parse_multiply() {
+    fn test_decode_multiply() {
         let bytes = 0xe0231290u32.to_be_bytes();
         let expected = ConditionalInstruction {
             instruction: Instruction::Multiply(InstructionMultiply {
@@ -253,15 +253,15 @@ mod tests {
         };
 
         assert_eq!(
-            parse_conditional_instruction(&bytes[..])
-                .expect("parse conditional multiply failed")
+            decode_conditional_instruction(&bytes[..])
+                .expect("decode conditional multiply failed")
                 .1,
             expected
         );
     }
 
     #[test]
-    fn test_parse_transfer() {
+    fn test_decode_transfer() {
         let bytes = 0xe7196103u32.to_be_bytes();
         let expected = ConditionalInstruction {
             instruction: Instruction::Transfer(InstructionTransfer {
@@ -276,15 +276,15 @@ mod tests {
         };
 
         assert_eq!(
-            parse_conditional_instruction(&bytes[..])
-                .expect("parse conditional transfer failed")
+            decode_conditional_instruction(&bytes[..])
+                .expect("decode conditional transfer failed")
                 .1,
             expected
         );
     }
 
     #[test]
-    fn test_parse_branch() {
+    fn test_decode_branch() {
         let bytes = 0x0a000121u32.to_be_bytes();
         let expected = ConditionalInstruction {
             instruction: Instruction::Branch(InstructionBranch { offset: 0x000121 }),
@@ -292,8 +292,8 @@ mod tests {
         };
 
         assert_eq!(
-            parse_conditional_instruction(&bytes[..])
-                .expect("parse conditional branch failed")
+            decode_conditional_instruction(&bytes[..])
+                .expect("decode conditional branch failed")
                 .1,
             expected
         );
