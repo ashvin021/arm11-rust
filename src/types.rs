@@ -55,8 +55,13 @@ pub struct ConditionalInstruction {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Operand2 {
     ConstantShift(u8, u8),
-    ConstantShiftedReg(u8, ShiftType, u8),
-    ShiftedReg(u8, ShiftType, u8),
+    ShiftedReg(u8, Shift),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Shift {
+    ConstantShift(ShiftType, u8),
+    RegisterShift(ShiftType, u8),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Primitive)]

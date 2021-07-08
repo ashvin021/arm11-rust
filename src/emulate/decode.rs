@@ -145,7 +145,7 @@ fn decode_cond(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ConditionCode
 
 fn decode_operand2_immediate(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {
     map(tuple((take(4u8), take(8u8))), |(shift_amt, to_shift)| {
-        Operand2::ConstantShift(shift_amt, to_shift)
+        Operand2::ConstantShift(to_shift, shift_amt)
     })(input)
 }
 
@@ -165,9 +165,9 @@ fn decode_operand2_shifted(input: (&[u8], usize)) -> NomResult<(&[u8], usize), O
         )),
         move |((shift_amt, shift_type), reg_to_shift)| {
             if is_shifted_r {
-                Operand2::ShiftedReg(shift_amt, shift_type, reg_to_shift)
+                Operand2::ShiftedReg(reg_to_shift, Shift::RegisterShift(shift_type, shift_amt))
             } else {
-                Operand2::ConstantShiftedReg(shift_amt, shift_type, reg_to_shift)
+                Operand2::ShiftedReg(reg_to_shift, Shift::ConstantShift(shift_type, shift_amt))
             }
         },
     )(input)
@@ -184,7 +184,7 @@ mod tests {
             bits(decode_operand2_immediate)(&bytes[..])
                 .expect("operand2 decode failed")
                 .1,
-            Operand2::ConstantShift(0x1, 0x2a)
+            Operand2::ConstantShift(0x2a, 0x1)
         );
     }
 
@@ -195,7 +195,7 @@ mod tests {
             bits(decode_operand2_shifted)(&bytes[..])
                 .expect("operand2 decode failed")
                 .1,
-            Operand2::ConstantShiftedReg(0x2, ShiftType::Lsr, 0xa)
+            Operand2::ShiftedReg(0xa, Shift::ConstantShift(ShiftType::Lsr, 0x2))
         );
     }
 
@@ -224,7 +224,7 @@ mod tests {
                 set_cond: false,
                 rn: 0x0,
                 rd: 0x1,
-                operand2: Operand2::ConstantShift(0x0, 0x1),
+                operand2: Operand2::ConstantShift(0x1, 0x0),
             }),
             cond: ConditionCode::Al,
         };
@@ -270,7 +270,7 @@ mod tests {
                 load: true,
                 rn: 9,
                 rd: 6,
-                offset: Operand2::ConstantShiftedReg(2, ShiftType::Lsl, 3),
+                offset: Operand2::ShiftedReg(3, Shift::ConstantShift(ShiftType::Lsl, 2)),
             }),
             cond: ConditionCode::Al,
         };

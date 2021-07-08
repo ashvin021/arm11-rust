@@ -13,6 +13,8 @@ pub fn execute(state: &mut EmulatorState, instr: ConditionalInstruction) -> Resu
         return Ok(());
     }
 
+    // eprintln!("{:#?}", state.read_reg(2));
+
     match instr.instruction {
         Processing(processing) => execute_processing(state, processing),
         Multiply(multiply) => execute_multiply(state, multiply),
@@ -100,7 +102,7 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
 
     // Calculate offset
     let interpreted_offset: i32 = match offset {
-        Operand2::ConstantShift(rotate, imm) => i32::from(rotate) << 8 | i32::from(imm),
+        Operand2::ConstantShift(imm, rotate) => i32::from(rotate) << 8 | i32::from(imm),
         _ => barrel_shifter(offset, state.regs()).0 as i32,
     };
 
@@ -109,11 +111,12 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
 
     // Handle pre-indexing
     if is_preindexed {
-        mem_address += if up_bit {
-            interpreted_offset
-        } else {
-            -interpreted_offset
-        } as usize;
+        mem_address = ((mem_address as i32)
+            + if up_bit {
+                interpreted_offset
+            } else {
+                -interpreted_offset
+            }) as usize;
     }
 
     // Perform transfer
@@ -181,18 +184,18 @@ impl ConditionalInstruction {
 }
 
 pub fn barrel_shifter(op2: Operand2, register_file: &[u32; 17]) -> (u32, bool) {
-    let (shift_amt, to_shift, shift_type): (u8, u32, ShiftType) = match op2 {
-        Operand2::ConstantShift(shift_amt, to_shift) => {
-            (2 * shift_amt, u32::from(to_shift), ShiftType::Ror)
+    let (to_shift, shift_amt, shift_type): (u32, u8, ShiftType) = match op2 {
+        Operand2::ConstantShift(to_shift, shift_amt) => {
+            (u32::from(to_shift), 2 * shift_amt, ShiftType::Ror)
         }
-        Operand2::ConstantShiftedReg(constant_shift, shift_type, reg_to_shift) => (
-            constant_shift,
+        Operand2::ShiftedReg(reg_to_shift, Shift::ConstantShift(shift_type, constant_shift)) => (
             register_file[reg_to_shift as usize],
+            constant_shift,
             shift_type,
         ),
-        Operand2::ShiftedReg(shift_reg, shift_type, reg_to_shift) => (
-            (register_file[shift_reg as usize] & utils::mask(8)) as u8,
+        Operand2::ShiftedReg(reg_to_shift, Shift::RegisterShift(shift_type, shift_reg)) => (
             register_file[reg_to_shift as usize],
+            (register_file[shift_reg as usize] & utils::mask(8)) as u8,
             shift_type,
         ),
     };
