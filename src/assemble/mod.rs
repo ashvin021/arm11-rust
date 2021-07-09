@@ -1,3 +1,5 @@
+mod parse;
+
 use std::{collections::HashMap, fs};
 
 use super::types::*;
