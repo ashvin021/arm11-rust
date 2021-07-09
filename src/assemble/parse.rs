@@ -66,8 +66,8 @@ fn parse_multiply(input: &str) -> NomResult<&str, (ConditionalInstruction, Optio
             terminated(alt((tag("mul"), tag("mla"))), char(' ')),
             terminated(parse_reg, char(',')),
             terminated(parse_reg, char(',')),
-            terminated(parse_reg, char(',')),
-            opt(terminated(parse_reg, char(','))),
+            parse_reg,
+            opt(preceded(char(','), parse_reg)),
         )),
         |(opcode, rd, rm, rs, opt_rn)| {
             let (accumulate, rn) = match (opcode, opt_rn) {
@@ -240,7 +240,7 @@ fn parse_operand2_constant(input: &str) -> NomResult<&str, Operand2> {
     map_opt(parse_expression, |value| expression_to_operand2(value).ok())(input)
 }
 
-fn expression_to_operand2(value: i32) -> Result<Operand2> {
+fn expression_to_operand2(mut value: i32) -> Result<Operand2> {
     let mut rotate_count: u8 = 0x10;
 
     // If the value fits in 8 bits, we don't need to rotate it
@@ -450,18 +450,99 @@ mod tests {
         assert_eq!(
             parse_processing("add r3,r1,r2")
                 .expect("parse processing failed")
-                .1
-                 .0,
-            ConditionalInstruction {
-                cond: ConditionCode::Al,
-                instruction: Instruction::Processing(InstructionProcessing {
-                    opcode: ProcessingOpcode::Add,
-                    rd: 3,
-                    rn: 1,
-                    set_cond: false,
-                    operand2: Operand2::ShiftedReg(2, Shift::ConstantShift(ShiftType::Ror, 0))
-                })
-            }
+                .1,
+            (
+                ConditionalInstruction {
+                    cond: ConditionCode::Al,
+                    instruction: Instruction::Processing(InstructionProcessing {
+                        opcode: ProcessingOpcode::Add,
+                        rd: 3,
+                        rn: 1,
+                        set_cond: false,
+                        operand2: Operand2::ShiftedReg(2, Shift::ConstantShift(ShiftType::Ror, 0))
+                    })
+                },
+                None
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_multiply() {
+        assert_eq!(
+            parse_multiply("mul r3,r1,r2")
+                .expect("parse multiply failed")
+                .1,
+            (
+                ConditionalInstruction {
+                    cond: ConditionCode::Al,
+                    instruction: Instruction::Multiply(InstructionMultiply {
+                        accumulate: false,
+                        set_cond: false,
+                        rd: 3,
+                        rm: 1,
+                        rs: 2,
+                        rn: 0
+                    })
+                },
+                None
+            )
+        );
+
+        assert_eq!(
+            parse_multiply("mla r3,r1,r2,r4")
+                .expect("parse multiply failed")
+                .1,
+            (
+                ConditionalInstruction {
+                    cond: ConditionCode::Al,
+                    instruction: Instruction::Multiply(InstructionMultiply {
+                        accumulate: true,
+                        set_cond: false,
+                        rd: 3,
+                        rm: 1,
+                        rs: 2,
+                        rn: 4
+                    })
+                },
+                None
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_branch() {
+        let mut symbol_table = HashMap::new();
+        symbol_table.insert("foo".to_owned(), 0x14);
+        symbol_table.insert("wait".to_owned(), 0x4);
+        let rc_symbol_table = Rc::new(symbol_table);
+
+        let st_1 = rc_symbol_table.clone();
+        assert_eq!(
+            parse_branch(0xc, st_1)("beq foo")
+                .expect("parse branch failed")
+                .1,
+            (
+                ConditionalInstruction {
+                    cond: ConditionCode::Eq,
+                    instruction: Instruction::Branch(InstructionBranch { offset: 0 })
+                },
+                None
+            )
+        );
+
+        let st_2 = rc_symbol_table.clone();
+        assert_eq!(
+            parse_branch(0xc, st_2)("bne wait")
+                .expect("parse branch failed")
+                .1,
+            (
+                ConditionalInstruction {
+                    cond: ConditionCode::Ne,
+                    instruction: Instruction::Branch(InstructionBranch { offset: -4 })
+                },
+                None
+            )
         );
     }
 }
