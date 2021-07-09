@@ -17,6 +17,8 @@ pub fn parse_asm(
     symbol_table: Rc<HashMap<String, u32>>,
 ) -> Result<(ConditionalInstruction, Option<u32>)> {
     let (instr, opt_data) = alt((
+        parse_halt,
+        parse_lsl,
         parse_processing,
         parse_transfer(current_address, next_free_address),
         parse_multiply,
@@ -166,7 +168,7 @@ fn parse_transfer_immediate(
                         None,
                     )
                 } else {
-                    let offset: i32 = next_free_address as i32 - current_address as i32 + 8;
+                    let offset: i32 = next_free_address as i32 - (current_address as i32 + 8);
                     (
                         ConditionalInstruction {
                             cond: ConditionCode::Al,
@@ -206,14 +208,13 @@ fn parse_branch(
     current_address: u32,
     symbol_table: Rc<HashMap<String, u32>>,
 ) -> impl Fn(&str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
-    let st = symbol_table.clone();
     move |input: &str| {
         map(
             tuple((
                 delimited(char('b'), opt(parse_condition_code), char(' ')),
                 alt((
                     map(decimal_value, |x: i32| x.try_into().unwrap()),
-                    map(alpha1, |label: &str| *st.get(label).unwrap()),
+                    map(alpha1, |label: &str| *symbol_table.get(label).unwrap()),
                 )),
             )),
             |(opt_cond, addr)| {
@@ -230,6 +231,33 @@ fn parse_branch(
             },
         )(input)
     }
+}
+
+fn parse_halt(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
+    value(
+        (
+            ConditionalInstruction {
+                cond: ConditionCode::Eq,
+                instruction: Instruction::Halt,
+            },
+            None,
+        ),
+        tag("andeq r0,r0,r0"),
+    )(input)
+}
+
+fn parse_lsl(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
+    let (rest, (rn, op2)) = tuple((
+        delimited(tag("lsl "), parse_reg, char(',')),
+        recognize(parse_operand2_constant),
+    ))(input)?;
+
+    Ok((
+        rest,
+        parse_processing(format!("mov r{},r{},lsl #{}", rn, rn, op2).as_str())
+            .unwrap()
+            .1,
+    ))
 }
 
 fn parse_operand2(input: &str) -> NomResult<&str, Operand2> {
@@ -256,7 +284,7 @@ fn expression_to_operand2(mut value: i32) -> Result<Operand2> {
     // If the rotate count was not decremented, we take 0
     rotate_count &= 0xF;
     let to_rotate = value.try_into()?;
-    Ok(Operand2::ConstantShift(rotate_count, to_rotate))
+    Ok(Operand2::ConstantShift(to_rotate, rotate_count))
 }
 
 fn parse_operand2_shifted(input: &str) -> NomResult<&str, Operand2> {
@@ -424,14 +452,14 @@ mod tests {
             parse_operand2_constant("#0x2")
                 .expect("parse operand 2 constant failed")
                 .1,
-            Operand2::ConstantShift(0, 0x2)
+            Operand2::ConstantShift(0x2, 0)
         );
 
         assert_eq!(
             parse_operand2_constant("#0x3f00000")
                 .expect("parse operand 2 constant failed")
                 .1,
-            Operand2::ConstantShift(6, 0x3f)
+            Operand2::ConstantShift(0x3f, 6)
         );
     }
 
@@ -540,6 +568,64 @@ mod tests {
                 ConditionalInstruction {
                     cond: ConditionCode::Ne,
                     instruction: Instruction::Branch(InstructionBranch { offset: -4 })
+                },
+                None
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_transfer_immediate() {
+        // Case where expression <= 0xff
+        assert_eq!(
+            parse_transfer_immediate(0x0, 0xc)("ldr r0,=0x02")
+                .expect("parse transfer failed")
+                .1,
+            (
+                ConditionalInstruction {
+                    cond: ConditionCode::Al,
+                    instruction: Instruction::Processing(InstructionProcessing {
+                        opcode: ProcessingOpcode::Mov,
+                        set_cond: false,
+                        rn: 0,
+                        rd: 0,
+                        operand2: Operand2::ConstantShift(0x02, 0)
+                    })
+                },
+                None
+            )
+        );
+
+        // Case where expression > 0xff
+        assert_eq!(
+            parse_transfer_immediate(0x0, 0x8)("ldr r2,=0x20200020")
+                .expect("parse transfer immediate failed")
+                .1,
+            (
+                ConditionalInstruction {
+                    cond: ConditionCode::Al,
+                    instruction: Instruction::Transfer(InstructionTransfer {
+                        is_preindexed: true,
+                        up_bit: true,
+                        load: true,
+                        rn: 15,
+                        rd: 2,
+                        offset: Operand2::ConstantShift(0x0, 0),
+                    })
+                },
+                Some(0x20200020)
+            )
+        )
+    }
+
+    #[test]
+    fn test_parse_halt() {
+        assert_eq!(
+            parse_halt("andeq r0,r0,r0").expect("parse halt failed").1,
+            (
+                ConditionalInstruction {
+                    cond: ConditionCode::Eq,
+                    instruction: Instruction::Halt
                 },
                 None
             )
