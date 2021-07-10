@@ -1,4 +1,4 @@
-use nom::error::{ErrorKind, ParseError};
+use nom::error::{ContextError, ErrorKind, ParseError};
 use nom::{ErrorConvert, IResult};
 
 #[derive(Debug)]
@@ -10,6 +10,7 @@ pub struct ArmNomError<I> {
 #[derive(Debug, Copy, Clone)]
 pub enum ArmNomErrorKind<I> {
     Nom(I, ErrorKind),
+    Context(I, &'static str),
 }
 
 impl<I> ArmNomError<I> {
@@ -51,10 +52,18 @@ impl<I> ErrorConvert<ArmNomError<I>> for ArmNomError<(I, usize)> {
     }
 }
 
+impl<I> ContextError<I> for ArmNomError<I> {
+    fn add_context(input: I, ctx: &'static str, mut other: Self) -> Self {
+        other.backtrace.push(ArmNomErrorKind::Context(input, ctx));
+        other
+    }
+}
+
 impl<I> ErrorConvert<ArmNomErrorKind<I>> for ArmNomErrorKind<(I, usize)> {
     fn convert(self) -> ArmNomErrorKind<I> {
         match self {
             ArmNomErrorKind::Nom(t, k) => ArmNomErrorKind::Nom(t.0, k),
+            ArmNomErrorKind::Context(t, c) => ArmNomErrorKind::Context(t.0, c),
         }
     }
 }

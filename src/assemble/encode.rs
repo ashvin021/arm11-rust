@@ -76,7 +76,7 @@ fn encode_transfer(instr: InstructionTransfer) -> u32 {
 fn encode_branch(instr: InstructionBranch) -> u32 {
     let InstructionBranch { offset } = instr;
     let mask = 0x5 << 25;
-    mask | (offset as u32)
+    mask | ((offset as u32) & ((1 << 24) - 1))
 }
 
 fn encode_operand2(op2: Operand2) -> u32 {

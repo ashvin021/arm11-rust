@@ -16,18 +16,21 @@ pub fn run(input_filename: &str, output_filename: &str) -> Result<()> {
     let mut additional = Vec::new();
     let mut next_free_address = (instructions.len() * 4) as u32;
 
+    println!("{:?}", rc_symbol_table.clone());
+    println!("{:?}", instructions);
+
     // Second pass, parse the strings and add them to vectors
     for (current_address, instr) in instructions.iter().enumerate() {
         let st = rc_symbol_table.clone();
         let (parsed, opt_data) = parse::parse_asm(
             instr.as_str(),
-            current_address as u32,
+            (current_address as u32) * 4,
             next_free_address,
             st,
         )?;
 
         let encoded = encode::encode(parsed);
-        assembled.extend_from_slice(&encoded.to_be_bytes());
+        assembled.extend_from_slice(&encoded.to_le_bytes());
 
         if let Some(data) = opt_data {
             additional.extend_from_slice(&data.to_le_bytes());
@@ -39,9 +42,6 @@ pub fn run(input_filename: &str, output_filename: &str) -> Result<()> {
     let mut file = fs::File::create(output_filename)?;
     file.write_all(&assembled)?;
 
-    println!("{:?}", rc_symbol_table.clone());
-    println!("{:?}", instructions);
-
     Ok(())
 }
 
@@ -52,6 +52,9 @@ fn extract_labels_and_instructions(raw: String) -> (HashMap<String, u32>, Vec<St
     let mut address = 0;
     for line in raw.lines() {
         let len = line.len();
+        if len == 0 {
+            continue;
+        }
         if &line[len - 1..] == ":" {
             symbol_table.insert(String::from(&line[..len - 1]), address);
         } else {

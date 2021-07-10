@@ -3,8 +3,9 @@ use std::{collections::HashMap, convert::TryInto, rc::Rc};
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, char, digit1, hex_digit1},
-    combinator::{map, map_opt, opt, recognize, success, value, verify},
+    character::complete::{alphanumeric1, char, digit1, hex_digit1, space0, space1},
+    combinator::{complete, map, map_opt, opt, recognize, success, value, verify},
+    error::context,
     sequence::{delimited, preceded, terminated, tuple},
 };
 
@@ -17,12 +18,12 @@ pub fn parse_asm(
     symbol_table: Rc<HashMap<String, u32>>,
 ) -> Result<(ConditionalInstruction, Option<u32>)> {
     let (instr, opt_data) = alt((
-        parse_halt,
-        parse_lsl,
-        parse_processing,
-        parse_transfer(current_address, next_free_address),
-        parse_multiply,
-        parse_branch(current_address, symbol_table),
+        complete(parse_halt),
+        complete(parse_lsl),
+        complete(parse_processing),
+        complete(parse_transfer(current_address, next_free_address)),
+        complete(parse_multiply),
+        complete(parse_branch(current_address, symbol_table)),
     ))(raw)
     .map_err(|e| format!("{:#?}", e))?
     .1;
@@ -31,45 +32,58 @@ pub fn parse_asm(
 }
 
 fn parse_processing(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
-    map(
-        tuple((
-            terminated(parse_processing_opcode, char(' ')),
-            terminated(parse_reg, char(',')),
-            opt(terminated(parse_reg, char(','))),
-            alt((parse_operand2_constant, parse_operand2_shifted)),
-        )),
-        |(opcode, r1, opt_r2, operand2)| {
-            let (rd, rn, set_cond) = match (opcode, r1, opt_r2) {
-                (_, rd, Some(rn)) => (rd, rn, false),
-                (ProcessingOpcode::Mov, rd, None) => (rd, 0, false),
-                (_, rn, None) => (0, rn, true),
-            };
-
-            (
-                ConditionalInstruction {
-                    cond: ConditionCode::Al,
-                    instruction: Instruction::Processing(InstructionProcessing {
-                        opcode,
-                        rd,
-                        rn,
-                        set_cond,
-                        operand2,
-                    }),
-                },
-                None,
-            )
-        },
-    )(input)
+    let (rest, opcode) = context(
+        "parsing processing opcode",
+        terminated(parse_processing_opcode, space1),
+    )(input)?;
+    context(
+        "parsing processing instruction",
+        map(
+            alt((
+                tuple((
+                    terminated(parse_reg, comma_space),
+                    terminated(parse_reg, comma_space),
+                    parse_operand2,
+                    success(false),
+                )),
+                tuple((
+                    success(0),
+                    terminated(parse_reg, comma_space),
+                    parse_operand2,
+                    success(true),
+                )),
+            )),
+            move |(r1, r2, operand2, set_cond)| {
+                let (rd, rn, set_cond) = match opcode {
+                    ProcessingOpcode::Mov => (r2, r1, false),
+                    _ => (r1, r2, set_cond),
+                };
+                (
+                    ConditionalInstruction {
+                        cond: ConditionCode::Al,
+                        instruction: Instruction::Processing(InstructionProcessing {
+                            opcode,
+                            rd,
+                            rn,
+                            set_cond,
+                            operand2,
+                        }),
+                    },
+                    None,
+                )
+            },
+        ),
+    )(rest)
 }
 
 fn parse_multiply(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     map(
         tuple((
-            terminated(alt((tag("mul"), tag("mla"))), char(' ')),
-            terminated(parse_reg, char(',')),
-            terminated(parse_reg, char(',')),
+            terminated(alt((tag("mul"), tag("mla"))), space1),
+            terminated(parse_reg, comma_space),
+            terminated(parse_reg, comma_space),
             parse_reg,
-            opt(preceded(char(','), parse_reg)),
+            opt(preceded(comma_space, parse_reg)),
         )),
         |(opcode, rd, rm, rs, opt_rn)| {
             let (accumulate, rn) = match (opcode, opt_rn) {
@@ -101,43 +115,55 @@ fn parse_transfer(
     next_free_address: u32,
 ) -> impl Fn(&str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     move |input: &str| {
-        alt((
-            parse_transfer_immediate(current_address, next_free_address),
-            map(
-                tuple((
-                    alt((value(true, tag("ldr")), value(false, tag("str")))),
-                    parse_reg,
-                    alt((
-                        delimited(
-                            char('['),
-                            tuple((parse_reg, parse_addressing_spec, success(true))),
-                            char(']'),
+        context(
+            "parsing transfer instruction",
+            alt((
+                parse_transfer_immediate(current_address, next_free_address),
+                map(
+                    tuple((
+                        terminated(
+                            alt((value(true, tag("ldr")), value(false, tag("str")))),
+                            space1,
                         ),
-                        tuple((
-                            delimited(char('['), parse_reg, char(']')),
-                            parse_addressing_spec,
-                            success(false),
+                        terminated(parse_reg, comma_space),
+                        alt((
+                            complete(tuple((
+                                delimited(char('['), parse_reg, char(']')),
+                                parse_addressing_spec,
+                                success(false),
+                            ))),
+                            complete(delimited(
+                                char('['),
+                                tuple((parse_reg, parse_addressing_spec, success(true))),
+                                char(']'),
+                            )),
+                            // Default case, pre-indexed with no addressing offset
+                            complete(tuple((
+                                delimited(char('['), parse_reg, char(']')),
+                                success((true, Operand2::ConstantShift(0, 0))),
+                                success(true),
+                            ))),
                         )),
                     )),
-                )),
-                |(load, rd, (rn, (up_bit, offset), is_preindexed))| {
-                    (
-                        ConditionalInstruction {
-                            cond: ConditionCode::Al,
-                            instruction: Instruction::Transfer(InstructionTransfer {
-                                is_preindexed,
-                                up_bit,
-                                load,
-                                rd,
-                                rn,
-                                offset,
-                            }),
-                        },
-                        None,
-                    )
-                },
-            ),
-        ))(input)
+                    |(load, rd, (rn, (up_bit, offset), is_preindexed))| {
+                        (
+                            ConditionalInstruction {
+                                cond: ConditionCode::Al,
+                                instruction: Instruction::Transfer(InstructionTransfer {
+                                    is_preindexed,
+                                    up_bit,
+                                    load,
+                                    rd,
+                                    rn,
+                                    offset,
+                                }),
+                            },
+                            None,
+                        )
+                    },
+                ),
+            )),
+        )(input)
     }
 }
 
@@ -148,8 +174,8 @@ fn parse_transfer_immediate(
     move |input: &str| {
         map(
             tuple((
-                terminated(tag("ldr"), char(' ')),
-                terminated(parse_reg, char(',')),
+                terminated(tag("ldr"), space1),
+                terminated(parse_reg, comma_space),
                 preceded(char('='), alt((hexedecimal_value, decimal_value))),
             )),
             |(_, rd, expression)| {
@@ -190,17 +216,15 @@ fn parse_transfer_immediate(
 }
 
 fn parse_addressing_spec(input: &str) -> NomResult<&str, (bool, Operand2)> {
-    map(
-        opt(tuple((
-            char(','),
-            opt(alt((tag("+"), tag("-")))),
-            parse_operand2,
-        ))),
-        |opt_offset| match opt_offset {
-            Some((_, Some(sign), op2)) => (sign == "+", op2),
-            Some((_, None, op2)) => (true, op2),
-            None => (true, Operand2::ConstantShift(0, 0)),
-        },
+    context(
+        "parsing addressing spec",
+        map(
+            tuple((comma_space, opt(alt((tag("+"), tag("-")))), parse_operand2)),
+            |offset| match offset {
+                (_, Some(sign), op2) => (sign == "+", op2),
+                (_, None, op2) => (true, op2),
+            },
+        ),
     )(input)
 }
 
@@ -211,10 +235,12 @@ fn parse_branch(
     move |input: &str| {
         map(
             tuple((
-                delimited(char('b'), opt(parse_condition_code), char(' ')),
+                delimited(char('b'), opt(parse_condition_code), space1),
                 alt((
                     map(decimal_value, |x: i32| x.try_into().unwrap()),
-                    map(alpha1, |label: &str| *symbol_table.get(label).unwrap()),
+                    map(alphanumeric1, |label: &str| {
+                        *symbol_table.get(label).unwrap()
+                    }),
                 )),
             )),
             |(opt_cond, addr)| {
@@ -252,20 +278,25 @@ fn parse_lsl(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32
         recognize(parse_operand2_constant),
     ))(input)?;
 
-    Ok((
-        rest,
-        parse_processing(format!("mov r{},r{},lsl #{}", rn, rn, op2).as_str())
-            .unwrap()
-            .1,
-    ))
+    let fake_input = format!("mov r{},r{}, lsl {}", rn, rn, op2);
+    let mut parser = complete(parse_processing);
+    println!("{:?}", fake_input);
+
+    Ok((rest, parser(fake_input.as_str()).expect("parse failed").1))
 }
 
 fn parse_operand2(input: &str) -> NomResult<&str, Operand2> {
-    alt((parse_operand2_constant, parse_operand2_shifted))(input)
+    context(
+        "parsing operand2",
+        alt((parse_operand2_constant, parse_operand2_shifted)),
+    )(input)
 }
 
 fn parse_operand2_constant(input: &str) -> NomResult<&str, Operand2> {
-    map_opt(parse_expression, |value| expression_to_operand2(value).ok())(input)
+    context(
+        "parsing operand2 constant",
+        map_opt(parse_expression, |value| expression_to_operand2(value).ok()),
+    )(input)
 }
 
 fn expression_to_operand2(mut value: i32) -> Result<Operand2> {
@@ -288,49 +319,66 @@ fn expression_to_operand2(mut value: i32) -> Result<Operand2> {
 }
 
 fn parse_operand2_shifted(input: &str) -> NomResult<&str, Operand2> {
-    map(
-        tuple((parse_reg, opt(preceded(char(','), parse_shift)))),
-        |(reg_to_shift, shift_opt)| {
-            shift_opt.map_or(
-                Operand2::ShiftedReg(reg_to_shift, Shift::ConstantShift(ShiftType::Ror, 0)),
-                |shift| Operand2::ShiftedReg(reg_to_shift, shift),
-            )
-        },
+    context(
+        "parsing operand2 shifted",
+        map(
+            tuple((parse_reg, opt(preceded(comma_space, parse_shift)))),
+            |(reg_to_shift, shift_opt)| {
+                shift_opt.map_or(
+                    Operand2::ShiftedReg(reg_to_shift, Shift::ConstantShift(ShiftType::Lsl, 0)),
+                    |shift| Operand2::ShiftedReg(reg_to_shift, shift),
+                )
+            },
+        ),
     )(input)
 }
 
 fn parse_shift(input: &str) -> NomResult<&str, Shift> {
     let (rest, shift_type) = parse_shifttype(input)?;
     preceded(
-        char(' '),
+        space0,
         alt((
-            map(parse_reg, move |reg: u8| {
-                Shift::RegisterShift(shift_type, reg)
-            }),
             map(parse_expression, move |x: i32| {
                 Shift::ConstantShift(shift_type, x.try_into().unwrap())
+            }),
+            map(parse_reg, move |reg: u8| {
+                Shift::RegisterShift(shift_type, reg)
             }),
         )),
     )(rest)
 }
 
 fn parse_reg(input: &str) -> NomResult<&str, u8> {
-    verify(
-        map(preceded(char('r'), digit1), |r: &str| {
-            r.parse::<u8>().unwrap()
-        }),
-        |&r| (0..NUM_REGS).contains(&(r as usize)),
+    context(
+        "parsing register",
+        verify(
+            map(preceded(char('r'), digit1), |r: &str| {
+                r.parse::<u8>().unwrap()
+            }),
+            |&r| (0..NUM_REGS).contains(&(r as usize)),
+        ),
     )(input)
 }
 
 fn parse_expression(input: &str) -> NomResult<&str, i32> {
-    preceded(char('#'), alt((hexedecimal_value, decimal_value)))(input)
+    context(
+        "parsing expresssion",
+        preceded(char('#'), alt((hexedecimal_value, decimal_value))),
+    )(input)
 }
 
 fn hexedecimal_value(input: &str) -> NomResult<&str, i32> {
-    map_opt(
-        preceded(tag("0x"), recognize(tuple((opt(char('-')), hex_digit1)))),
-        |out: &str| i32::from_str_radix(out, 16).ok(),
+    context(
+        "parsing hexedecimal value",
+        map_opt(
+            tuple((opt(char('-')), preceded(tag("0x"), recognize(hex_digit1)))),
+            // preceded(tag("0x"), recognize(tuple((opt(char('-')), hex_digit1)))),
+            |(opt_sign, out): (Option<char>, &str)| {
+                i32::from_str_radix(out, 16)
+                    .ok()
+                    .map(|v| if opt_sign.is_some() { -v } else { v })
+            },
+        ),
     )(input)
 }
 
@@ -340,13 +388,20 @@ fn decimal_value(input: &str) -> NomResult<&str, i32> {
     })(input)
 }
 
+fn comma_space(input: &str) -> NomResult<&str, char> {
+    terminated(char(','), space0)(input)
+}
+
 fn parse_shifttype(input: &str) -> NomResult<&str, ShiftType> {
-    alt((
-        value(ShiftType::Lsl, tag("lsl")),
-        value(ShiftType::Lsr, tag("lsr")),
-        value(ShiftType::Asr, tag("asr")),
-        value(ShiftType::Ror, tag("ror")),
-    ))(input)
+    context(
+        "parsing shift type",
+        alt((
+            value(ShiftType::Lsl, tag("lsl")),
+            value(ShiftType::Lsr, tag("lsr")),
+            value(ShiftType::Asr, tag("asr")),
+            value(ShiftType::Ror, tag("ror")),
+        )),
+    )(input)
 }
 
 fn parse_processing_opcode(input: &str) -> NomResult<&str, ProcessingOpcode> {
@@ -438,7 +493,7 @@ mod tests {
             0x123456
         );
         assert_eq!(
-            parse_expression("#0x-123456")
+            parse_expression("#-0x123456")
                 .expect("parse expression failed")
                 .1,
             -0x123456
@@ -487,7 +542,7 @@ mod tests {
                         rd: 3,
                         rn: 1,
                         set_cond: false,
-                        operand2: Operand2::ShiftedReg(2, Shift::ConstantShift(ShiftType::Ror, 0))
+                        operand2: Operand2::ShiftedReg(2, Shift::ConstantShift(ShiftType::Lsl, 0))
                     })
                 },
                 None
