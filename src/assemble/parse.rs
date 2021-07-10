@@ -11,6 +11,18 @@ use nom::{
 
 use crate::{constants::*, parse::*, types::*};
 
+// Parses an ARM assembly instruction in the form of a string into a ConditionalInstruction. There
+// are 4 main types of instructions:
+// 1. Processing
+// 2. Multiply
+// 3. Transfer
+// 4. Branch
+//
+// There are also 2 special cases; Halt and Lsl instructions.
+//
+// The second field in the return tuple may contain data (usually from Transfer instructions),
+// which are to be added to the assembled binary, at the end of all the encoded instructions.
+//
 pub fn parse_asm(
     raw: &str,
     current_address: u32,
@@ -31,6 +43,20 @@ pub fn parse_asm(
     Ok((instr, opt_data))
 }
 
+// Parses a processing instruction. This can either be:
+//
+// 1. Instructions that compute results: and, eor, sub, rsb, add, orr
+// eg: <opcode> Rd,Rn,<Operand2>
+//
+// 2. Single operand assignment: mov
+// eg: mov Rd,<Operand2>
+//
+// 3. Instructions that do not compute results, but do set CPSR flags: tst, teq, cmp
+// eg: <opcode> Rn,<Operand2>
+//
+// This returns no additional data, so the second field of the return tuple will
+// always be None.
+//
 fn parse_processing(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     let (rest, opcode) = context(
         "parsing processing opcode",
@@ -41,12 +67,17 @@ fn parse_processing(input: &str) -> NomResult<&str, (ConditionalInstruction, Opt
         map(
             alt((
                 tuple((
+                    // case with two registers
+                    // eg: <opcode> Rd,Rn,<Operand2>
                     terminated(parse_reg, comma_space),
                     terminated(parse_reg, comma_space),
                     parse_operand2,
                     success(false),
                 )),
                 tuple((
+                    // cases with one register
+                    // eg: mov Rd,<Operand2>
+                    // eg: <opcode> Rn,<Operand2>
                     success(0),
                     terminated(parse_reg, comma_space),
                     parse_operand2,
@@ -54,6 +85,7 @@ fn parse_processing(input: &str) -> NomResult<&str, (ConditionalInstruction, Opt
                 )),
             )),
             move |(r1, r2, (operand2, _), set_cond)| {
+                // If its a Mov instruction, the result is saved to Rd, instead of Rn
                 let (rd, rn, set_cond) = match opcode {
                     ProcessingOpcode::Mov => (r2, r1, false),
                     _ => (r1, r2, set_cond),
@@ -76,40 +108,55 @@ fn parse_processing(input: &str) -> NomResult<&str, (ConditionalInstruction, Opt
     )(rest)
 }
 
+// Parses a multiply instruction. This can either be a multiply instruction (mul Rd,Rm,Rs)
+// or an multiply with accumulate instruction (mla Rd,Rm,Rs,Rn).
+//
+// This returns no additional data, so the second field of the return tuple will
+// always be None.
+//
 fn parse_multiply(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
-    map(
-        tuple((
-            terminated(alt((tag("mul"), tag("mla"))), space1),
-            terminated(parse_reg, comma_space),
-            terminated(parse_reg, comma_space),
-            parse_reg,
-            opt(preceded(comma_space, parse_reg)),
-        )),
-        |(opcode, rd, rm, rs, opt_rn)| {
-            let (accumulate, rn) = match (opcode, opt_rn) {
-                ("mla", Some(rn)) => (true, rn),
-                ("mul", None) => (false, 0),
-                _ => unreachable!(),
-            };
+    context(
+        "parsing multiply instruction",
+        map(
+            tuple((
+                terminated(alt((tag("mul"), tag("mla"))), space1),
+                terminated(parse_reg, comma_space),
+                terminated(parse_reg, comma_space),
+                parse_reg,
+                opt(preceded(comma_space, parse_reg)),
+            )),
+            |(opcode, rd, rm, rs, opt_rn)| {
+                // Mla instructions are accumulate, and have an Rn register specified
+                let (accumulate, rn) = match (opcode, opt_rn) {
+                    ("mla", Some(rn)) => (true, rn),
+                    ("mul", None) => (false, 0),
+                    _ => unreachable!(),
+                };
 
-            (
-                ConditionalInstruction {
-                    cond: ConditionCode::Al,
-                    instruction: Instruction::Multiply(InstructionMultiply {
-                        rd,
-                        rm,
-                        rs,
-                        rn,
-                        accumulate,
-                        set_cond: false,
-                    }),
-                },
-                None,
-            )
-        },
+                (
+                    ConditionalInstruction {
+                        cond: ConditionCode::Al,
+                        instruction: Instruction::Multiply(InstructionMultiply {
+                            rd,
+                            rm,
+                            rs,
+                            rn,
+                            accumulate,
+                            set_cond: false,
+                        }),
+                    },
+                    None,
+                )
+            },
+        ),
     )(input)
 }
 
+// Parses a transfer instruction. This can either be an immediate expression, or an indexed
+// instruction.
+//
+// This may return additional data in the Option<u32>.
+//
 fn parse_transfer(
     current_address: u32,
     next_free_address: u32,
@@ -119,175 +166,250 @@ fn parse_transfer(
             "parsing transfer instruction",
             alt((
                 parse_transfer_immediate(current_address, next_free_address),
-                map(
-                    tuple((
-                        terminated(
-                            alt((value(true, tag("ldr")), value(false, tag("str")))),
-                            space1,
-                        ),
-                        terminated(parse_reg, comma_space),
-                        alt((
-                            complete(tuple((
-                                delimited(char('['), parse_reg, char(']')),
-                                parse_addressing_spec,
-                                success(false),
-                            ))),
-                            complete(delimited(
-                                char('['),
-                                tuple((parse_reg, parse_addressing_spec, success(true))),
-                                char(']'),
-                            )),
-                            // Default case, pre-indexed with no addressing offset
-                            complete(tuple((
-                                delimited(char('['), parse_reg, char(']')),
-                                success((Operand2::ConstantShift(0, 0), false)),
-                                success(true),
-                            ))),
-                        )),
-                    )),
-                    |(load, rd, (rn, (offset, is_signed), is_preindexed))| {
-                        (
-                            ConditionalInstruction {
-                                cond: ConditionCode::Al,
-                                instruction: Instruction::Transfer(InstructionTransfer {
-                                    is_preindexed,
-                                    up_bit: !is_signed,
-                                    load,
-                                    rd,
-                                    rn,
-                                    offset,
-                                }),
-                            },
-                            None,
-                        )
-                    },
-                ),
+                parse_transfer_indexed,
             )),
         )(input)
     }
 }
 
+// Returns a parser for an immediate transfer instruction, given the address of the current
+// instruction, and the next address available for data.
+//
+// If the immediate expression can fit inside of a mov instruction, this is interpreted as
+// so, and the parser returns a mov instruction with no additional data.
+// If the expression cannot fit inside a mov instruction, it is returned by the parser as
+// additional data in the Option<u32>. The instruction is a transfer instruction which
+// contains the offset to the address of this data.
+//
 fn parse_transfer_immediate(
     current_address: u32,
     next_free_address: u32,
 ) -> impl Fn(&str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     move |input: &str| {
-        map(
-            tuple((
-                terminated(tag("ldr"), space1),
-                terminated(parse_reg, comma_space),
-                preceded(char('='), alt((hexedecimal_value, decimal_value))),
-            )),
-            |(_, rd, (expression, _))| {
-                if expression <= 0xff {
-                    (
-                        ConditionalInstruction {
-                            cond: ConditionCode::Al,
-                            instruction: Instruction::Processing(InstructionProcessing {
-                                opcode: ProcessingOpcode::Mov,
-                                set_cond: false,
-                                rd,
-                                rn: 0,
-                                operand2: expression_to_operand2(expression).unwrap(),
-                            }),
-                        },
-                        None,
-                    )
-                } else {
-                    let offset: i32 = next_free_address as i32 - (current_address as i32 + 8);
-                    (
-                        ConditionalInstruction {
-                            cond: ConditionCode::Al,
-                            instruction: Instruction::Transfer(InstructionTransfer {
-                                is_preindexed: true,
-                                up_bit: true,
-                                load: true,
-                                rn: 15,
-                                rd,
-                                offset: expression_to_operand2(offset as u32).unwrap(),
-                            }),
-                        },
-                        Some(expression as u32),
-                    )
-                }
-            },
+        context(
+            "parsing immediate transfer",
+            map(
+                tuple((
+                    terminated(tag("ldr"), space1),
+                    terminated(parse_reg, comma_space),
+                    preceded(char('='), alt((hexedecimal_value, decimal_value))),
+                )),
+                |(_, rd, (expression, _))| {
+                    if expression <= 0xff {
+                        (
+                            ConditionalInstruction {
+                                cond: ConditionCode::Al,
+                                instruction: Instruction::Processing(InstructionProcessing {
+                                    opcode: ProcessingOpcode::Mov,
+                                    set_cond: false,
+                                    rd,
+                                    rn: 0,
+                                    operand2: expression_to_operand2(expression).unwrap(),
+                                }),
+                            },
+                            None,
+                        )
+                    } else {
+                        let offset: i32 = next_free_address as i32 - (current_address as i32 + 8);
+                        (
+                            ConditionalInstruction {
+                                cond: ConditionCode::Al,
+                                instruction: Instruction::Transfer(InstructionTransfer {
+                                    is_preindexed: true,
+                                    up_bit: true,
+                                    load: true,
+                                    rn: 15,
+                                    rd,
+                                    offset: expression_to_operand2(offset as u32).unwrap(),
+                                }),
+                            },
+                            Some(expression as u32),
+                        )
+                    }
+                },
+            ),
         )(input)
     }
 }
 
-fn parse_addressing_spec(input: &str) -> NomResult<&str, (Operand2, bool)> {
-    println!("parsing addressing spec");
+// Parses an indexed transfer instruction. This can be without an offset (eg: <opcode> [Rd]), with
+// a pre-indexed offset (eg: <opcode> [Rd, <Operand2>]) or with a post-indexed offset (eg: <opcode>
+// [Rd] <Operand2>).
+//
+// This returns no additional data, so the second field of the return tuple will
+// always be None
+//
+fn parse_transfer_indexed(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     context(
-        "parsing addressing spec",
-        preceded(comma_space, parse_operand2),
+        "parsing indexed transfer",
+        map(
+            tuple((
+                terminated(
+                    alt((value(true, tag("ldr")), value(false, tag("str")))),
+                    space1,
+                ),
+                terminated(parse_reg, comma_space),
+                alt((
+                    // Post-indexed case
+                    // eg: <opcode> [Rd], <Operand2>
+                    context(
+                        "parsing post-indexed transfer, with offset",
+                        complete(tuple((
+                            delimited(char('['), parse_reg, char(']')),
+                            preceded(comma_space, parse_operand2),
+                            success(false),
+                        ))),
+                    ),
+                    // Pre-indexed case
+                    // eg: <opcode> [Rd, <Operand2>]
+                    context(
+                        "parsing pre-indexed transfer, with offset",
+                        complete(delimited(
+                            char('['),
+                            tuple((
+                                parse_reg,
+                                preceded(comma_space, parse_operand2),
+                                success(true),
+                            )),
+                            char(']'),
+                        )),
+                    ),
+                    // Default case, pre-indexed with no addressing offset
+                    // eg: <opcode> [Rd]
+                    context(
+                        "parsing pre-indexed transfer, with no offset",
+                        complete(tuple((
+                            delimited(char('['), parse_reg, char(']')),
+                            success((Operand2::ConstantShift(0, 0), false)),
+                            success(true),
+                        ))),
+                    ),
+                )),
+            )),
+            |(load, rd, (rn, (offset, is_signed), is_preindexed))| {
+                (
+                    ConditionalInstruction {
+                        cond: ConditionCode::Al,
+                        instruction: Instruction::Transfer(InstructionTransfer {
+                            is_preindexed,
+                            up_bit: !is_signed,
+                            load,
+                            rd,
+                            rn,
+                            offset,
+                        }),
+                    },
+                    None,
+                )
+            },
+        ),
     )(input)
 }
 
+// Returns a parser for branch instructions, given the address of the current instruction and the
+// symbol table.
+//
+// The parser will return no additional data, so the second field of the parser's return tuple will
+// always be None
+//
 fn parse_branch(
     current_address: u32,
     symbol_table: Rc<HashMap<String, u32>>,
 ) -> impl Fn(&str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     move |input: &str| {
-        map(
-            tuple((
-                delimited(char('b'), opt(parse_condition_code), space1),
-                alt((
-                    map(signed_decimal_value, |x: i32| x.try_into().unwrap()),
-                    map(alphanumeric1, |label: &str| {
-                        *symbol_table.get(label).unwrap()
-                    }),
+        context(
+            "parsing branch instruction",
+            map(
+                tuple((
+                    delimited(char('b'), opt(parse_condition_code), space1),
+                    alt((
+                        // Direct branch address, given as a decimal integer
+                        map(signed_decimal_value, |x: i32| x.try_into().unwrap()),
+                        // Label branch address, lookup in symbol table
+                        map(alphanumeric1, |label: &str| {
+                            *symbol_table.get(label).unwrap()
+                        }),
+                    )),
                 )),
-            )),
-            |(opt_cond, addr)| {
-                let cond = opt_cond.unwrap_or(ConditionCode::Al);
-                let offset: i32 = ((addr as i32) - (current_address as i32) - 8) >> 2;
+                |(opt_cond, addr)| {
+                    let cond = opt_cond.unwrap_or(ConditionCode::Al);
+                    let offset: i32 = ((addr as i32) - (current_address as i32) - 8) >> 2;
 
-                (
-                    ConditionalInstruction {
-                        cond,
-                        instruction: Instruction::Branch(InstructionBranch { offset }),
-                    },
-                    None,
-                )
-            },
+                    (
+                        ConditionalInstruction {
+                            cond,
+                            instruction: Instruction::Branch(InstructionBranch { offset }),
+                        },
+                        None,
+                    )
+                },
+            ),
         )(input)
     }
 }
 
+// Parses a halt instruction, i.e. andeq r0,r0,r0.
+//
+// This returns no additional data, so the second field of the return tuple will
+// always be None
+//
 fn parse_halt(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
-    value(
-        (
-            ConditionalInstruction {
-                cond: ConditionCode::Eq,
-                instruction: Instruction::Halt,
-            },
-            None,
+    context(
+        "parsing halt instruction",
+        value(
+            (
+                ConditionalInstruction {
+                    cond: ConditionCode::Eq,
+                    instruction: Instruction::Halt,
+                },
+                None,
+            ),
+            recognize(tuple((
+                tag("andeq"),
+                space1,
+                tag("r0"),
+                comma_space,
+                tag("r0"),
+                comma_space,
+                tag("r0"),
+            ))),
         ),
-        tag("andeq r0,r0,r0"),
     )(input)
 }
 
+// Parses an lsl instruction. This provides an ARM assembly compatible way of shifting registers,
+// without supporting the full syntax for shift-modified expressions.
+//
+// This returns no additional data, so the second field of the return tuple will
+// always be None
+//
 fn parse_lsl(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
-    let (rest, (rn, op2)) = tuple((
-        delimited(tag("lsl "), parse_reg, char(',')),
-        recognize(parse_operand2_constant),
-    ))(input)?;
+    let (rest, (rn, op2)) = context(
+        "parsing lsl instruction operands",
+        tuple((
+            delimited(tag("lsl "), parse_reg, char(',')),
+            recognize(parse_operand2_constant),
+        )),
+    )(input)?;
 
-    let fake_input = format!("mov r{},r{}, lsl {}", rn, rn, op2);
-    let mut parser = complete(parse_processing);
-    println!("{:?}", fake_input);
+    // The lsl instruction is desugared into a mov instruction, which is then parsed.
+    let desugared = format!("mov r{},r{}, lsl {}", rn, rn, op2);
+    let parsed = context("parsing lsl instruction as mov", parse_processing)(desugared.as_str())
+        .expect("parse failed")
+        .1;
 
-    Ok((rest, parser(fake_input.as_str()).expect("parse failed").1))
+    Ok((rest, parsed))
 }
 
+// Parses an Operand2 from a string. This can be either a constant shifted or a register shifted value.
 fn parse_operand2(input: &str) -> NomResult<&str, (Operand2, bool)> {
-    println!("parsing op2");
     context(
         "parsing operand2",
         alt((parse_operand2_constant, parse_operand2_shifted)),
     )(input)
 }
 
+// Parses an expression from a string, directly to an Operand2.
 fn parse_operand2_constant(input: &str) -> NomResult<&str, (Operand2, bool)> {
     context(
         "parsing operand2 constant",
@@ -297,6 +419,11 @@ fn parse_operand2_constant(input: &str) -> NomResult<&str, (Operand2, bool)> {
     )(input)
 }
 
+// Converts u32 to a constant shifted Operand2.
+//
+// assert_eq!(expression_to_operand2(0x2), Operand2::ConstantShift(0x2, 0));
+// assert_eq!(expression_to_operand2(0x3f0000), Operand2::ConstantShift(0x3f, 6));
+//
 fn expression_to_operand2(mut value: u32) -> Result<Operand2> {
     let mut rotate_count: u8 = 0x10;
 
@@ -316,6 +443,10 @@ fn expression_to_operand2(mut value: u32) -> Result<Operand2> {
     Ok(Operand2::ConstantShift(to_rotate, rotate_count))
 }
 
+// Parses a shifted register Operand2, i.e a string of the form: <register>{, <shift>}
+// Curly braces here indicate that the shift is optional. If no shift is given, we use a constant
+// shift of 0 as the shift value.
+//
 fn parse_operand2_shifted(input: &str) -> NomResult<&str, (Operand2, bool)> {
     context(
         "parsing operand2 shifted",
@@ -334,21 +465,33 @@ fn parse_operand2_shifted(input: &str) -> NomResult<&str, (Operand2, bool)> {
     )(input)
 }
 
+// Parses a shift, i.e. an expression which is either a <shifttype> <#expression> or a
+// <shifttype> <register>. It is preceded by 0 or more spaces.
+//
+// assert_eq!(parse_shift("  lsl r2"), Ok("", Shift::RegisterShift(ShiftType::Lsl, 2)));
+// assert_eq!(parse_shift("ror #2")), Ok("", Shift::ConstantShift(ShiftType::Ror, 2));
+//
 fn parse_shift(input: &str) -> NomResult<&str, Shift> {
-    let (rest, shift_type) = parse_shifttype(input)?;
-    preceded(
-        space0,
-        alt((
-            map(parse_expression, move |(x, _)| {
-                Shift::ConstantShift(shift_type, x.try_into().unwrap())
-            }),
-            map(parse_reg, move |reg: u8| {
-                Shift::RegisterShift(shift_type, reg)
-            }),
-        )),
+    let (rest, shift_type) = context("parsing shift type", parse_shifttype)(input)?;
+    context(
+        "parsing shift",
+        preceded(
+            space0,
+            alt((
+                map(parse_expression, move |(x, _)| {
+                    Shift::ConstantShift(shift_type, x.try_into().unwrap())
+                }),
+                map(parse_reg, move |reg: u8| {
+                    Shift::RegisterShift(shift_type, reg)
+                }),
+            )),
+        ),
     )(rest)
 }
 
+// Parses a register of the form r<int>, where int is within the number of available registers.
+// eg: r0, r12, 15
+//
 fn parse_reg(input: &str) -> NomResult<&str, u8> {
     context(
         "parsing register",
@@ -368,49 +511,63 @@ fn parse_expression(input: &str) -> NomResult<&str, (u32, bool)> {
     )(input)
 }
 
+// Parses a signed hexadecimal value to a (u32, bool), where the boolean is true if the
+// original value is negative.
+// eg:
+//
+// assert_eq!(hexedecimal_value("0x1234"), Ok("", (0x1234, false))
+// assert_eq!(hexedecimal_value("-0x6969"), Ok("", (0x6969, true))
+//
 fn hexedecimal_value(input: &str) -> NomResult<&str, (u32, bool)> {
     context(
         "parsing hexedecimal value",
         map_opt(
             tuple((opt(char('-')), preceded(tag("0x"), recognize(hex_digit1)))),
             |(opt_sign, out): (Option<char>, &str)| {
-                u32::from_str_radix(out, 16).ok().map(|v| {
-                    if opt_sign.is_some() {
-                        (v, true)
-                    } else {
-                        (v, false)
-                    }
-                })
+                u32::from_str_radix(out, 16)
+                    .ok()
+                    .map(|v| (v, opt_sign.is_some()))
             },
         ),
     )(input)
 }
 
+// Parses a signed decimal value to a (u32, bool), where the boolean is true if the
+// original value is negative.
+//
+// assert_eq!(hexedecimal_value("1234"), Ok("", (1234, false))
+// assert_eq!(hexedecimal_value("-6969"), Ok("", (6969, true))
+//
 fn decimal_value(input: &str) -> NomResult<&str, (u32, bool)> {
-    map_opt(
-        tuple((opt(char('-')), recognize(digit1))),
-        |(opt_sign, out): (Option<char>, &str)| {
-            u32::from_str_radix(out, 10).ok().map(|v| {
-                if opt_sign.is_some() {
-                    (v, true)
-                } else {
-                    (v, false)
-                }
-            })
-        },
+    context(
+        "parsing decimal value",
+        map_opt(
+            tuple((opt(char('-')), recognize(digit1))),
+            |(opt_sign, out): (Option<char>, &str)| {
+                u32::from_str_radix(out, 10)
+                    .ok()
+                    .map(|v| (v, opt_sign.is_some()))
+            },
+        ),
     )(input)
 }
 
+// Parses a signed hexadecimal value to an i32.
 fn signed_decimal_value(input: &str) -> NomResult<&str, i32> {
-    map_opt(recognize(tuple((opt(char('-')), digit1))), |out: &str| {
-        i32::from_str_radix(out, 10).ok()
-    })(input)
+    context(
+        "parsing signed decimal value",
+        map_opt(recognize(tuple((opt(char('-')), digit1))), |out: &str| {
+            i32::from_str_radix(out, 10).ok()
+        }),
+    )(input)
 }
 
+// Matches a comma, with 0 or more spaces following it.
 fn comma_space(input: &str) -> NomResult<&str, char> {
     terminated(char(','), space0)(input)
 }
 
+// Parses shifttype strings into values of ShiftType.
 fn parse_shifttype(input: &str) -> NomResult<&str, ShiftType> {
     context(
         "parsing shift type",
@@ -423,33 +580,43 @@ fn parse_shifttype(input: &str) -> NomResult<&str, ShiftType> {
     )(input)
 }
 
+// Parses processing opcode strings into values of ProcessingOpcode.
 fn parse_processing_opcode(input: &str) -> NomResult<&str, ProcessingOpcode> {
-    alt((
-        value(ProcessingOpcode::And, tag("and")),
-        value(ProcessingOpcode::Eor, tag("eor")),
-        value(ProcessingOpcode::Sub, tag("sub")),
-        value(ProcessingOpcode::Rsb, tag("rsb")),
-        value(ProcessingOpcode::Add, tag("add")),
-        value(ProcessingOpcode::Tst, tag("tst")),
-        value(ProcessingOpcode::Teq, tag("teq")),
-        value(ProcessingOpcode::Cmp, tag("cmp")),
-        value(ProcessingOpcode::Orr, tag("orr")),
-        value(ProcessingOpcode::Mov, tag("mov")),
-    ))(input)
+    context(
+        "parsing processing opcode",
+        alt((
+            value(ProcessingOpcode::And, tag("and")),
+            value(ProcessingOpcode::Eor, tag("eor")),
+            value(ProcessingOpcode::Sub, tag("sub")),
+            value(ProcessingOpcode::Rsb, tag("rsb")),
+            value(ProcessingOpcode::Add, tag("add")),
+            value(ProcessingOpcode::Tst, tag("tst")),
+            value(ProcessingOpcode::Teq, tag("teq")),
+            value(ProcessingOpcode::Cmp, tag("cmp")),
+            value(ProcessingOpcode::Orr, tag("orr")),
+            value(ProcessingOpcode::Mov, tag("mov")),
+        )),
+    )(input)
 }
 
+// Parses condition code strings into values of ConditionCode.
 fn parse_condition_code(input: &str) -> NomResult<&str, ConditionCode> {
-    alt((
-        value(ConditionCode::Eq, tag("eq")),
-        value(ConditionCode::Ne, tag("ne")),
-        value(ConditionCode::Ge, tag("ge")),
-        value(ConditionCode::Lt, tag("lt")),
-        value(ConditionCode::Gt, tag("gt")),
-        value(ConditionCode::Le, tag("le")),
-    ))(input)
+    context(
+        "parsing condition code",
+        alt((
+            value(ConditionCode::Eq, tag("eq")),
+            value(ConditionCode::Ne, tag("ne")),
+            value(ConditionCode::Ge, tag("ge")),
+            value(ConditionCode::Lt, tag("lt")),
+            value(ConditionCode::Gt, tag("gt")),
+            value(ConditionCode::Le, tag("le")),
+        )),
+    )(input)
 }
 
-/// TESTS
+///////////////////////////////////////////////////////////////////////////////
+// TESTS
+///////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod tests {
@@ -497,25 +664,25 @@ mod tests {
             parse_expression("#123456")
                 .expect("parse expression failed")
                 .1,
-            123456
+            (123456, false)
         );
         assert_eq!(
             parse_expression("#-123456")
                 .expect("parse expression failed")
                 .1,
-            -123456
+            (123456, true)
         );
         assert_eq!(
             parse_expression("#0x123456")
                 .expect("parse expression failed")
                 .1,
-            0x123456
+            (0x123456, false)
         );
         assert_eq!(
             parse_expression("#-0x123456")
                 .expect("parse expression failed")
                 .1,
-            -0x123456
+            (0x123456, true)
         );
     }
 
@@ -526,14 +693,14 @@ mod tests {
             parse_operand2_constant("#0x2")
                 .expect("parse operand 2 constant failed")
                 .1,
-            Operand2::ConstantShift(0x2, 0)
+            (Operand2::ConstantShift(0x2, 0), false)
         );
 
         assert_eq!(
             parse_operand2_constant("#0x3f00000")
                 .expect("parse operand 2 constant failed")
                 .1,
-            Operand2::ConstantShift(0x3f, 6)
+            (Operand2::ConstantShift(0x3f, 6), false)
         );
     }
 
@@ -543,7 +710,10 @@ mod tests {
             parse_operand2_shifted("r2,lsr #2")
                 .expect("parse operand 2 shifted failed")
                 .1,
-            Operand2::ShiftedReg(2, Shift::ConstantShift(ShiftType::Lsr, 2))
+            (
+                Operand2::ShiftedReg(2, Shift::ConstantShift(ShiftType::Lsr, 2)),
+                false
+            )
         )
     }
 
