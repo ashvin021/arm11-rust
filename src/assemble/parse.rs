@@ -53,7 +53,7 @@ fn parse_processing(input: &str) -> NomResult<&str, (ConditionalInstruction, Opt
                     success(true),
                 )),
             )),
-            move |(r1, r2, operand2, set_cond)| {
+            move |(r1, r2, (operand2, _), set_cond)| {
                 let (rd, rn, set_cond) = match opcode {
                     ProcessingOpcode::Mov => (r2, r1, false),
                     _ => (r1, r2, set_cond),
@@ -140,18 +140,18 @@ fn parse_transfer(
                             // Default case, pre-indexed with no addressing offset
                             complete(tuple((
                                 delimited(char('['), parse_reg, char(']')),
-                                success((true, Operand2::ConstantShift(0, 0))),
+                                success((Operand2::ConstantShift(0, 0), false)),
                                 success(true),
                             ))),
                         )),
                     )),
-                    |(load, rd, (rn, (up_bit, offset), is_preindexed))| {
+                    |(load, rd, (rn, (offset, is_signed), is_preindexed))| {
                         (
                             ConditionalInstruction {
                                 cond: ConditionCode::Al,
                                 instruction: Instruction::Transfer(InstructionTransfer {
                                     is_preindexed,
-                                    up_bit,
+                                    up_bit: !is_signed,
                                     load,
                                     rd,
                                     rn,
@@ -178,7 +178,7 @@ fn parse_transfer_immediate(
                 terminated(parse_reg, comma_space),
                 preceded(char('='), alt((hexedecimal_value, decimal_value))),
             )),
-            |(_, rd, expression)| {
+            |(_, rd, (expression, _))| {
                 if expression <= 0xff {
                     (
                         ConditionalInstruction {
@@ -204,7 +204,7 @@ fn parse_transfer_immediate(
                                 load: true,
                                 rn: 15,
                                 rd,
-                                offset: expression_to_operand2(offset).unwrap(),
+                                offset: expression_to_operand2(offset as u32).unwrap(),
                             }),
                         },
                         Some(expression as u32),
@@ -215,16 +215,11 @@ fn parse_transfer_immediate(
     }
 }
 
-fn parse_addressing_spec(input: &str) -> NomResult<&str, (bool, Operand2)> {
+fn parse_addressing_spec(input: &str) -> NomResult<&str, (Operand2, bool)> {
+    println!("parsing addressing spec");
     context(
         "parsing addressing spec",
-        map(
-            tuple((comma_space, opt(alt((tag("+"), tag("-")))), parse_operand2)),
-            |offset| match offset {
-                (_, Some(sign), op2) => (sign == "+", op2),
-                (_, None, op2) => (true, op2),
-            },
-        ),
+        preceded(comma_space, parse_operand2),
     )(input)
 }
 
@@ -237,7 +232,7 @@ fn parse_branch(
             tuple((
                 delimited(char('b'), opt(parse_condition_code), space1),
                 alt((
-                    map(decimal_value, |x: i32| x.try_into().unwrap()),
+                    map(signed_decimal_value, |x: i32| x.try_into().unwrap()),
                     map(alphanumeric1, |label: &str| {
                         *symbol_table.get(label).unwrap()
                     }),
@@ -285,21 +280,24 @@ fn parse_lsl(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32
     Ok((rest, parser(fake_input.as_str()).expect("parse failed").1))
 }
 
-fn parse_operand2(input: &str) -> NomResult<&str, Operand2> {
+fn parse_operand2(input: &str) -> NomResult<&str, (Operand2, bool)> {
+    println!("parsing op2");
     context(
         "parsing operand2",
         alt((parse_operand2_constant, parse_operand2_shifted)),
     )(input)
 }
 
-fn parse_operand2_constant(input: &str) -> NomResult<&str, Operand2> {
+fn parse_operand2_constant(input: &str) -> NomResult<&str, (Operand2, bool)> {
     context(
         "parsing operand2 constant",
-        map_opt(parse_expression, |value| expression_to_operand2(value).ok()),
+        map_opt(parse_expression, |(value, is_signed)| {
+            expression_to_operand2(value).map(|v| (v, is_signed)).ok()
+        }),
     )(input)
 }
 
-fn expression_to_operand2(mut value: i32) -> Result<Operand2> {
+fn expression_to_operand2(mut value: u32) -> Result<Operand2> {
     let mut rotate_count: u8 = 0x10;
 
     // If the value fits in 8 bits, we don't need to rotate it
@@ -318,15 +316,18 @@ fn expression_to_operand2(mut value: i32) -> Result<Operand2> {
     Ok(Operand2::ConstantShift(to_rotate, rotate_count))
 }
 
-fn parse_operand2_shifted(input: &str) -> NomResult<&str, Operand2> {
+fn parse_operand2_shifted(input: &str) -> NomResult<&str, (Operand2, bool)> {
     context(
         "parsing operand2 shifted",
         map(
             tuple((parse_reg, opt(preceded(comma_space, parse_shift)))),
             |(reg_to_shift, shift_opt)| {
-                shift_opt.map_or(
-                    Operand2::ShiftedReg(reg_to_shift, Shift::ConstantShift(ShiftType::Lsl, 0)),
-                    |shift| Operand2::ShiftedReg(reg_to_shift, shift),
+                (
+                    shift_opt.map_or(
+                        Operand2::ShiftedReg(reg_to_shift, Shift::ConstantShift(ShiftType::Lsl, 0)),
+                        |shift| Operand2::ShiftedReg(reg_to_shift, shift),
+                    ),
+                    false,
                 )
             },
         ),
@@ -338,7 +339,7 @@ fn parse_shift(input: &str) -> NomResult<&str, Shift> {
     preceded(
         space0,
         alt((
-            map(parse_expression, move |x: i32| {
+            map(parse_expression, move |(x, _)| {
                 Shift::ConstantShift(shift_type, x.try_into().unwrap())
             }),
             map(parse_reg, move |reg: u8| {
@@ -360,29 +361,47 @@ fn parse_reg(input: &str) -> NomResult<&str, u8> {
     )(input)
 }
 
-fn parse_expression(input: &str) -> NomResult<&str, i32> {
+fn parse_expression(input: &str) -> NomResult<&str, (u32, bool)> {
     context(
         "parsing expresssion",
         preceded(char('#'), alt((hexedecimal_value, decimal_value))),
     )(input)
 }
 
-fn hexedecimal_value(input: &str) -> NomResult<&str, i32> {
+fn hexedecimal_value(input: &str) -> NomResult<&str, (u32, bool)> {
     context(
         "parsing hexedecimal value",
         map_opt(
             tuple((opt(char('-')), preceded(tag("0x"), recognize(hex_digit1)))),
-            // preceded(tag("0x"), recognize(tuple((opt(char('-')), hex_digit1)))),
             |(opt_sign, out): (Option<char>, &str)| {
-                i32::from_str_radix(out, 16)
-                    .ok()
-                    .map(|v| if opt_sign.is_some() { -v } else { v })
+                u32::from_str_radix(out, 16).ok().map(|v| {
+                    if opt_sign.is_some() {
+                        (v, true)
+                    } else {
+                        (v, false)
+                    }
+                })
             },
         ),
     )(input)
 }
 
-fn decimal_value(input: &str) -> NomResult<&str, i32> {
+fn decimal_value(input: &str) -> NomResult<&str, (u32, bool)> {
+    map_opt(
+        tuple((opt(char('-')), recognize(digit1))),
+        |(opt_sign, out): (Option<char>, &str)| {
+            u32::from_str_radix(out, 10).ok().map(|v| {
+                if opt_sign.is_some() {
+                    (v, true)
+                } else {
+                    (v, false)
+                }
+            })
+        },
+    )(input)
+}
+
+fn signed_decimal_value(input: &str) -> NomResult<&str, i32> {
     map_opt(recognize(tuple((opt(char('-')), digit1))), |out: &str| {
         i32::from_str_radix(out, 10).ok()
     })(input)
