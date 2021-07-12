@@ -4,7 +4,6 @@ use arm11::assemble;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    env::set_var("RUST_BACKTRACE", "0");
 
     match args.len() {
         3 => {

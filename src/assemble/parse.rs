@@ -4,7 +4,7 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{alphanumeric1, char, digit1, hex_digit1, space0, space1},
-    combinator::{complete, map, map_opt, opt, recognize, success, value, verify},
+    combinator::{complete, map, opt, recognize, success, value, verify},
     error::context,
     sequence::{delimited, preceded, terminated, tuple},
 };
@@ -237,7 +237,7 @@ fn parse_transfer_immediate(
 // [Rd] <Operand2>).
 //
 // This returns no additional data, so the second field of the return tuple will
-// always be None
+// always be None.
 //
 fn parse_transfer_indexed(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     context(
@@ -310,7 +310,7 @@ fn parse_transfer_indexed(input: &str) -> NomResult<&str, (ConditionalInstructio
 // symbol table.
 //
 // The parser will return no additional data, so the second field of the parser's return tuple will
-// always be None
+// always be None.
 //
 fn parse_branch(
     current_address: u32,
@@ -351,7 +351,7 @@ fn parse_branch(
 // Parses a halt instruction, i.e. andeq r0,r0,r0.
 //
 // This returns no additional data, so the second field of the return tuple will
-// always be None
+// always be None.
 //
 fn parse_halt(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     context(
@@ -381,7 +381,7 @@ fn parse_halt(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u3
 // without supporting the full syntax for shift-modified expressions.
 //
 // This returns no additional data, so the second field of the return tuple will
-// always be None
+// always be None.
 //
 fn parse_lsl(input: &str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     let (rest, (rn, op2)) = context(
@@ -411,12 +411,11 @@ fn parse_operand2(input: &str) -> NomResult<&str, (Operand2, bool)> {
 
 // Parses an expression from a string, directly to an Operand2.
 fn parse_operand2_constant(input: &str) -> NomResult<&str, (Operand2, bool)> {
-    context(
-        "parsing operand2 constant",
-        map_opt(parse_expression, |(value, is_signed)| {
-            expression_to_operand2(value).map(|v| (v, is_signed)).ok()
-        }),
-    )(input)
+    let (rest, (value, is_signed)) = context("parsing operand2 constant", parse_expression)(input)?;
+    let op2 = expression_to_operand2(value)
+        .map_err(|_| ArmNomError::new(ArmNomErrorKind::Operand2Constant))?;
+
+    Ok((rest, (op2, is_signed)))
 }
 
 // Converts u32 to a constant shifted Operand2.
@@ -519,17 +518,19 @@ fn parse_expression(input: &str) -> NomResult<&str, (u32, bool)> {
 // assert_eq!(hexedecimal_value("-0x6969"), Ok("", (0x6969, true))
 //
 fn hexedecimal_value(input: &str) -> NomResult<&str, (u32, bool)> {
-    context(
+    let (rest, (opt_sign, out)) = context(
         "parsing hexedecimal value",
-        map_opt(
-            tuple((opt(char('-')), preceded(tag("0x"), recognize(hex_digit1)))),
-            |(opt_sign, out): (Option<char>, &str)| {
-                u32::from_str_radix(out, 16)
-                    .ok()
-                    .map(|v| (v, opt_sign.is_some()))
-            },
+        tuple((opt(char('-')), preceded(tag("0x"), recognize(hex_digit1)))),
+    )(input)?;
+
+    Ok((
+        rest,
+        (
+            u32::from_str_radix(out, 16)
+                .map_err(|_| ArmNomError::new(ArmNomErrorKind::HexadecimalValue))?,
+            opt_sign.is_some(),
         ),
-    )(input)
+    ))
 }
 
 // Parses a signed decimal value to a (u32, bool), where the boolean is true if the
@@ -539,27 +540,33 @@ fn hexedecimal_value(input: &str) -> NomResult<&str, (u32, bool)> {
 // assert_eq!(hexedecimal_value("-6969"), Ok("", (6969, true))
 //
 fn decimal_value(input: &str) -> NomResult<&str, (u32, bool)> {
-    context(
+    let (rest, (opt_sign, out)) = context(
         "parsing decimal value",
-        map_opt(
-            tuple((opt(char('-')), recognize(digit1))),
-            |(opt_sign, out): (Option<char>, &str)| {
-                u32::from_str_radix(out, 10)
-                    .ok()
-                    .map(|v| (v, opt_sign.is_some()))
-            },
+        tuple((opt(char('-')), recognize(digit1))),
+    )(input)?;
+
+    Ok((
+        rest,
+        (
+            u32::from_str_radix(out, 10)
+                .map_err(|_| ArmNomError::new(ArmNomErrorKind::DecimalValue))?,
+            opt_sign.is_some(),
         ),
-    )(input)
+    ))
 }
 
 // Parses a signed hexadecimal value to an i32.
 fn signed_decimal_value(input: &str) -> NomResult<&str, i32> {
-    context(
+    let (rest, out) = context(
         "parsing signed decimal value",
-        map_opt(recognize(tuple((opt(char('-')), digit1))), |out: &str| {
-            i32::from_str_radix(out, 10).ok()
-        }),
-    )(input)
+        recognize(tuple((opt(char('-')), digit1))),
+    )(input)?;
+
+    Ok((
+        rest,
+        i32::from_str_radix(out, 10)
+            .map_err(|_| ArmNomError::new(ArmNomErrorKind::SignedDecimalValue))?,
+    ))
 }
 
 // Matches a comma, with 0 or more spaces following it.

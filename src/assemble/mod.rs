@@ -16,9 +16,6 @@ pub fn run(input_filename: &str, output_filename: &str) -> Result<()> {
     let mut additional = Vec::new();
     let mut next_free_address = (instructions.len() * 4) as u32;
 
-    println!("{:?}", rc_symbol_table.clone());
-    println!("{:?}", instructions);
-
     // Second pass, parse the strings and add them to vectors
     for (current_address, instr) in instructions.iter().enumerate() {
         let st = rc_symbol_table.clone();

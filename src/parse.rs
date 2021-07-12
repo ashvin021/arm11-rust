@@ -11,6 +11,10 @@ pub struct ArmNomError<I> {
 pub enum ArmNomErrorKind<I> {
     Nom(I, ErrorKind),
     Context(I, &'static str),
+    Operand2Constant,
+    HexadecimalValue,
+    DecimalValue,
+    SignedDecimalValue,
 }
 
 impl<I> ArmNomError<I> {
@@ -64,6 +68,10 @@ impl<I> ErrorConvert<ArmNomErrorKind<I>> for ArmNomErrorKind<(I, usize)> {
         match self {
             ArmNomErrorKind::Nom(t, k) => ArmNomErrorKind::Nom(t.0, k),
             ArmNomErrorKind::Context(t, c) => ArmNomErrorKind::Context(t.0, c),
+            ArmNomErrorKind::Operand2Constant => ArmNomErrorKind::Operand2Constant,
+            ArmNomErrorKind::HexadecimalValue => ArmNomErrorKind::HexadecimalValue,
+            ArmNomErrorKind::DecimalValue => ArmNomErrorKind::DecimalValue,
+            ArmNomErrorKind::SignedDecimalValue => ArmNomErrorKind::SignedDecimalValue,
         }
     }
 }
