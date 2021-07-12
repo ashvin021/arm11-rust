@@ -6,10 +6,9 @@ use crate::{
 };
 
 use super::state::*;
-use super::utils;
 
 pub fn execute(state: &mut EmulatorState, instr: ConditionalInstruction) -> Result<()> {
-    if !instr.satisfies_cpsr(state.read_reg(EmulatorState::CPSR)) {
+    if !instr.satisfies_cpsr(state.read_reg(CPSR)) {
         return Ok(());
     }
 
@@ -53,7 +52,7 @@ fn execute_processing(state: &mut EmulatorState, instr: InstructionProcessing) -
         state.set_flags(CpsrFlag::C, c_flag);
         state.set_flags(
             CpsrFlag::N,
-            utils::extract_bit(&(result as u32), CpsrFlag::N as u8),
+            extract_bit(&(result as u32), CpsrFlag::N as u8),
         );
         state.set_flags(CpsrFlag::Z, result == 0);
     }
@@ -83,7 +82,7 @@ fn execute_multiply(state: &mut EmulatorState, instr: InstructionMultiply) -> Re
 
     // Set flags
     if set_cond {
-        state.set_flags(CpsrFlag::N, utils::extract_bit(&result, CpsrFlag::N as u8));
+        state.set_flags(CpsrFlag::N, extract_bit(&result, CpsrFlag::N as u8));
         state.set_flags(CpsrFlag::Z, result == 0);
     }
 
@@ -102,7 +101,7 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
 
     // Calculate offset
     let interpreted_offset: i32 = match offset {
-        Operand2::ConstantShift(imm, rotate) => i32::from(rotate) << 8 | i32::from(imm),
+        Operand2::ConstantShift(imm, rotate) => i32::from(rotate) << IMM_SHIFT.pos | i32::from(imm),
         _ => barrel_shifter(offset, state.regs()).0 as i32,
     };
 
@@ -153,9 +152,9 @@ fn execute_branch(state: &mut EmulatorState, instr: InstructionBranch) -> Result
     let InstructionBranch { offset } = instr;
 
     // Update the PC
-    let mut pc = *state.read_reg(EmulatorState::PC);
-    pc = (pc as i32 + utils::signed_24_to_32(offset << 2)) as u32;
-    state.write_reg(EmulatorState::PC, pc);
+    let mut pc = *state.read_reg(PC);
+    pc = (pc as i32 + signed_24_to_32(offset << 2)) as u32;
+    state.write_reg(PC, pc);
 
     // Flush the pipeline
     state.pipeline.flush();
@@ -167,9 +166,9 @@ fn execute_branch(state: &mut EmulatorState, instr: InstructionBranch) -> Result
 
 impl ConditionalInstruction {
     fn satisfies_cpsr(&self, cpsr_contents: &u32) -> bool {
-        let n: bool = utils::extract_bit(cpsr_contents, 31);
-        let z: bool = utils::extract_bit(cpsr_contents, 30);
-        let v: bool = utils::extract_bit(cpsr_contents, 28);
+        let n: bool = extract_bit(cpsr_contents, CpsrFlag::N as u8);
+        let z: bool = extract_bit(cpsr_contents, CpsrFlag::Z as u8);
+        let v: bool = extract_bit(cpsr_contents, CpsrFlag::V as u8);
 
         match self.cond {
             ConditionCode::Eq => z,
@@ -183,7 +182,7 @@ impl ConditionalInstruction {
     }
 }
 
-pub fn barrel_shifter(op2: Operand2, register_file: &[u32; 17]) -> (u32, bool) {
+pub fn barrel_shifter(op2: Operand2, register_file: &[u32; NUM_REGS]) -> (u32, bool) {
     let (to_shift, shift_amt, shift_type): (u32, u8, ShiftType) = match op2 {
         Operand2::ConstantShift(to_shift, shift_amt) => {
             (u32::from(to_shift), 2 * shift_amt, ShiftType::Ror)
@@ -195,7 +194,7 @@ pub fn barrel_shifter(op2: Operand2, register_file: &[u32; 17]) -> (u32, bool) {
         ),
         Operand2::ShiftedReg(reg_to_shift, Shift::RegisterShift(shift_type, shift_reg)) => (
             register_file[reg_to_shift as usize],
-            (register_file[shift_reg as usize] & utils::mask(8)) as u8,
+            (register_file[shift_reg as usize] & mask(8)) as u8,
             shift_type,
         ),
     };
@@ -216,7 +215,7 @@ pub fn shift(to_shift: u32, shift_amt: u8, shift_type: ShiftType) -> (u32, bool)
         }
         ShiftType::Ror => (
             to_shift.rotate_right(u32::from(shift_amt)),
-            utils::extract_bit(&to_shift, shift_amt - 1),
+            extract_bit(&to_shift, shift_amt - 1),
         ),
     }
 }
@@ -231,5 +230,17 @@ pub fn perform_processing_operation(op1: i32, op2: i32, opcode: ProcessingOpcode
         ProcessingOpcode::Cmp => (op1 - op2, op1 >= op2),
         ProcessingOpcode::Orr => (op1 | op2, false),
         ProcessingOpcode::Mov => (op2, false),
+    }
+}
+
+pub fn extract_bit(word: &u32, index: u8) -> bool {
+    ((word >> index) & 1) == 1
+}
+
+pub fn signed_24_to_32(num: i32) -> i32 {
+    if extract_bit(&(num as u32), 23) {
+        num | !mask(24) as i32
+    } else {
+        num
     }
 }
