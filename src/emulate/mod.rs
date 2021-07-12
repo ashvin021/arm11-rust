@@ -2,7 +2,6 @@ mod decode;
 mod execute;
 mod fetch;
 mod state;
-mod utils;
 
 use std::fs;
 

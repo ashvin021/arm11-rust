@@ -35,9 +35,6 @@ impl Default for Pipeline {
 }
 
 impl EmulatorState {
-    pub const PC: usize = 15;
-    pub const CPSR: usize = 16;
-
     pub fn new() -> Self {
         EmulatorState {
             memory: [0; MEMORY_SIZE],
@@ -69,48 +66,50 @@ impl EmulatorState {
     }
 
     pub fn read_memory(&self, address: usize) -> Result<u32> {
-        let bytes: [u8; 4] = self.memory[address..address + 4].try_into()?;
+        let bytes: [u8; BYTES_IN_WORD] =
+            self.memory[address..address + BYTES_IN_WORD].try_into()?;
         Ok(u32::from_le_bytes(bytes))
     }
 
     pub fn write_memory(&mut self, address: usize, val: u32) {
         let bytes = val.to_le_bytes();
-        self.memory[address..address + 4].clone_from_slice(&bytes[..]);
+        self.memory[address..address + BYTES_IN_WORD].clone_from_slice(&bytes[..]);
     }
 
     pub fn set_flags(&mut self, flag: CpsrFlag, set: bool) {
         if set {
-            self.register_file[EmulatorState::CPSR] |= 1 << flag as u32;
+            self.register_file[CPSR] |= 1 << flag as u32;
         } else {
-            self.register_file[EmulatorState::CPSR] &= !(1 << flag as u32);
+            self.register_file[CPSR] &= !(1 << flag as u32);
         }
     }
 
     pub fn print_state(&self) {
         println!("Registers:");
         for (index, contents) in self.register_file.iter().enumerate() {
+            const MAX_GENERAL_REG: usize = NUM_GENERAL_REGS - 1;
             match index {
-                0..=12 => {
+                0..=MAX_GENERAL_REG => {
                     println!(
                         "${: <3}: {: >10} (0x{:0>8x})",
                         index, *contents as i32, contents
                     )
                 }
-                EmulatorState::PC => {
+                PC => {
                     println!("PC  : {: >10} (0x{:0>8x})", *contents as i32, contents)
                 }
-                EmulatorState::CPSR => {
+                CPSR => {
                     println!("CPSR: {: >10} (0x{:0>8x})", *contents as i32, contents)
                 }
                 _ => (),
             }
         }
         println!("Non-zero memory:");
-        for i in (0..MEMORY_SIZE).step_by(4) {
-            if i + 4 >= MEMORY_SIZE {
+        for i in (0..MEMORY_SIZE).step_by(BYTES_IN_WORD) {
+            if i + BYTES_IN_WORD >= MEMORY_SIZE {
                 continue;
             }
-            let bytes: [u8; 4] = self.memory[i..i + 4]
+            let bytes: [u8; BYTES_IN_WORD] = self.memory[i..i + BYTES_IN_WORD]
                 .try_into()
                 .expect("slice with incorrect length");
             let word = i32::from_be_bytes(bytes);

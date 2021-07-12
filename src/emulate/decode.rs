@@ -8,7 +8,7 @@ use nom::{
 
 use num_traits::FromPrimitive;
 
-use crate::{parse::*, types::*};
+use crate::{constants::*, parse::*, types::*};
 
 pub fn decode(instr: &u32) -> Result<ConditionalInstruction> {
     Ok(decode_conditional_instruction(&instr.to_be_bytes()[..])
@@ -44,8 +44,8 @@ fn decode_processing(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruc
             take_bool,
             decode_opcode,
             take_bool,
-            take(4u8),
-            take(4u8),
+            take(RN.size),
+            take(RD.size),
             if is_immediate {
                 decode_operand2_immediate
             } else {
@@ -75,8 +75,8 @@ fn decode_transfer(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instructi
             take_bool,
             tag(0, 2u8),
             take_bool,
-            take(4u8),
-            take(4u8),
+            take(RN.size),
+            take(RD.size),
             if is_shifted_r {
                 decode_operand2_shifted
             } else {
@@ -102,11 +102,11 @@ fn decode_multiply(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instructi
             tag(0, 6u8),
             take_bool,
             take_bool,
-            take(4u8),
-            take(4u8),
-            take(4u8),
+            take(RD_MULT.size),
+            take(RN_MULT.size),
+            take(RS.size),
             tag(0x9, 4u8),
-            take(4u8),
+            take(RM.size),
         )),
         |(_, accumulate, set_cond, rd, rn, rs, _, rm)| {
             Instruction::Multiply(InstructionMultiply {
@@ -122,9 +122,10 @@ fn decode_multiply(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instructi
 }
 
 fn decode_branch(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
-    map(tuple((tag(0xa, 4u8), take(24u32))), |(_, offset)| {
-        Instruction::Branch(InstructionBranch { offset })
-    })(input)
+    map(
+        tuple((tag(0xa, 4u8), take(OFFSET_BRANCH.size))),
+        |(_, offset)| Instruction::Branch(InstructionBranch { offset }),
+    )(input)
 }
 
 fn take_bool(input: (&[u8], usize)) -> NomResult<(&[u8], usize), bool> {
@@ -132,21 +133,22 @@ fn take_bool(input: (&[u8], usize)) -> NomResult<(&[u8], usize), bool> {
 }
 
 fn decode_opcode(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ProcessingOpcode> {
-    map_opt(take(4u8), ProcessingOpcode::from_u8)(input)
+    map_opt(take(OPCODE.size), ProcessingOpcode::from_u8)(input)
 }
 
 fn decode_shift_type(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ShiftType> {
-    map_opt(take(2u8), ShiftType::from_u8)(input)
+    map_opt(take(SHIFT_TYPE.size), ShiftType::from_u8)(input)
 }
 
 fn decode_cond(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ConditionCode> {
-    map_opt(take(4u8), ConditionCode::from_u8)(input)
+    map_opt(take(COND.size), ConditionCode::from_u8)(input)
 }
 
 fn decode_operand2_immediate(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {
-    map(tuple((take(4u8), take(8u8))), |(shift_amt, to_shift)| {
-        Operand2::ConstantShift(to_shift, shift_amt)
-    })(input)
+    map(
+        tuple((take(IMM_SHIFT.size), take(IMM_VALUE.size))),
+        |(shift_amt, to_shift)| Operand2::ConstantShift(to_shift, shift_amt),
+    )(input)
 }
 
 fn decode_operand2_shifted(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {
@@ -156,10 +158,13 @@ fn decode_operand2_shifted(input: (&[u8], usize)) -> NomResult<(&[u8], usize), O
         tuple((
             alt((
                 pair(
-                    terminated(take::<_, u8, _, _>(4u8), tag(0, 1u8)),
+                    terminated(take::<_, u8, _, _>(REG_SHIFT.size), tag(0, 1u8)),
                     terminated(decode_shift_type, tag(1, 1u8)),
                 ),
-                pair(take(5u8), terminated(decode_shift_type, tag(0, 1u8))),
+                pair(
+                    take(CONST_SHIFT.size),
+                    terminated(decode_shift_type, tag(0, 1u8)),
+                ),
             )),
             take(4u8),
         )),

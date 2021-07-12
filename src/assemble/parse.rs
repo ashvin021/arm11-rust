@@ -25,8 +25,8 @@ use crate::{constants::*, parse::*, types::*};
 //
 pub fn parse_asm(
     raw: &str,
-    current_address: u32,
-    next_free_address: u32,
+    current_address: usize,
+    next_free_address: usize,
     symbol_table: Rc<HashMap<String, u32>>,
 ) -> Result<(ConditionalInstruction, Option<u32>)> {
     let (instr, opt_data) = alt((
@@ -158,8 +158,8 @@ fn parse_multiply(input: &str) -> NomResult<&str, (ConditionalInstruction, Optio
 // This may return additional data in the Option<u32>.
 //
 fn parse_transfer(
-    current_address: u32,
-    next_free_address: u32,
+    current_address: usize,
+    next_free_address: usize,
 ) -> impl Fn(&str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     move |input: &str| {
         context(
@@ -182,8 +182,8 @@ fn parse_transfer(
 // contains the offset to the address of this data.
 //
 fn parse_transfer_immediate(
-    current_address: u32,
-    next_free_address: u32,
+    current_address: usize,
+    next_free_address: usize,
 ) -> impl Fn(&str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     move |input: &str| {
         context(
@@ -195,7 +195,7 @@ fn parse_transfer_immediate(
                     preceded(char('='), alt((hexedecimal_value, decimal_value))),
                 )),
                 |(_, rd, (expression, _))| {
-                    if expression <= 0xff {
+                    if expression <= mask(IMM_VALUE.size as u8) {
                         (
                             ConditionalInstruction {
                                 cond: ConditionCode::Al,
@@ -210,7 +210,8 @@ fn parse_transfer_immediate(
                             None,
                         )
                     } else {
-                        let offset: i32 = next_free_address as i32 - (current_address as i32 + 8);
+                        let offset: i32 = next_free_address as i32
+                            - (current_address as i32 + PIPELINE_OFFSET as i32);
                         (
                             ConditionalInstruction {
                                 cond: ConditionCode::Al,
@@ -218,7 +219,7 @@ fn parse_transfer_immediate(
                                     is_preindexed: true,
                                     up_bit: true,
                                     load: true,
-                                    rn: 15,
+                                    rn: PC as u8,
                                     rd,
                                     offset: expression_to_operand2(offset as u32).unwrap(),
                                 }),
@@ -313,7 +314,7 @@ fn parse_transfer_indexed(input: &str) -> NomResult<&str, (ConditionalInstructio
 // always be None.
 //
 fn parse_branch(
-    current_address: u32,
+    current_address: usize,
     symbol_table: Rc<HashMap<String, u32>>,
 ) -> impl Fn(&str) -> NomResult<&str, (ConditionalInstruction, Option<u32>)> {
     move |input: &str| {
@@ -333,7 +334,8 @@ fn parse_branch(
                 )),
                 |(opt_cond, addr)| {
                     let cond = opt_cond.unwrap_or(ConditionCode::Al);
-                    let offset: i32 = ((addr as i32) - (current_address as i32) - 8) >> 2;
+                    let offset: i32 =
+                        (addr as i32 - current_address as i32 - PIPELINE_OFFSET as i32) >> 2;
 
                     (
                         ConditionalInstruction {
@@ -424,20 +426,20 @@ fn parse_operand2_constant(input: &str) -> NomResult<&str, (Operand2, bool)> {
 // assert_eq!(expression_to_operand2(0x3f0000), Operand2::ConstantShift(0x3f, 6));
 //
 fn expression_to_operand2(mut value: u32) -> Result<Operand2> {
-    let mut rotate_count: u8 = 0x10;
+    let mut rotate_count: u8 = 1 << 4;
 
     // If the value fits in 8 bits, we don't need to rotate it
-    if value > 0xff {
+    if value > mask(IMM_VALUE.size as u8) {
         // While the least significant bits are both zeroes,
         // shift right and count a rotation.
-        while value & 0x3 == 0 {
+        while value & mask(2) == 0 {
             value = value.overflowing_shr(2).0;
             rotate_count -= 1;
         }
     }
 
     // If the rotate count was not decremented, we take 0
-    rotate_count &= 0xF;
+    rotate_count &= mask(4) as u8;
     let to_rotate = value.try_into()?;
     Ok(Operand2::ConstantShift(to_rotate, rotate_count))
 }
@@ -488,7 +490,7 @@ fn parse_shift(input: &str) -> NomResult<&str, Shift> {
     )(rest)
 }
 
-// Parses a register of the form r<int>, where int is within the number of available registers.
+// Parses a register of the form r<int>, where int is a valid available register
 // eg: r0, r12, 15
 //
 fn parse_reg(input: &str) -> NomResult<&str, u8> {
@@ -498,7 +500,11 @@ fn parse_reg(input: &str) -> NomResult<&str, u8> {
             map(preceded(char('r'), digit1), |r: &str| {
                 r.parse::<u8>().unwrap()
             }),
-            |&r| (0..NUM_REGS).contains(&(r as usize)),
+            |&r| {
+                (0..NUM_GENERAL_REGS).contains(&(r as usize))
+                    || r as usize == PC
+                    || r as usize == CPSR
+            },
         ),
     )(input)
 }
@@ -548,7 +554,7 @@ fn decimal_value(input: &str) -> NomResult<&str, (u32, bool)> {
     Ok((
         rest,
         (
-            u32::from_str_radix(out, 10)
+            out.parse::<u32>()
                 .map_err(|_| ArmNomError::new(ArmNomErrorKind::DecimalValue))?,
             opt_sign.is_some(),
         ),
@@ -564,7 +570,7 @@ fn signed_decimal_value(input: &str) -> NomResult<&str, i32> {
 
     Ok((
         rest,
-        i32::from_str_radix(out, 10)
+        out.parse::<i32>()
             .map_err(|_| ArmNomError::new(ArmNomErrorKind::SignedDecimalValue))?,
     ))
 }
@@ -695,7 +701,7 @@ mod tests {
 
     #[test]
     fn test_parse_operand2_constant() {
-        // Check the case where the constant is less than 0xff
+        // Check the case where the constant is less than IMM_VALUE.size
         assert_eq!(
             parse_operand2_constant("#0x2")
                 .expect("parse operand 2 constant failed")
@@ -827,7 +833,7 @@ mod tests {
 
     #[test]
     fn test_parse_transfer_immediate() {
-        // Case where expression <= 0xff
+        // Case where expression <= IMM_VALUE.size
         assert_eq!(
             parse_transfer_immediate(0x0, 0xc)("ldr r0,=0x02")
                 .expect("parse transfer failed")
@@ -847,7 +853,7 @@ mod tests {
             )
         );
 
-        // Case where expression > 0xff
+        // Case where expression > IMM_VALUE.size
         assert_eq!(
             parse_transfer_immediate(0x0, 0x8)("ldr r2,=0x20200020")
                 .expect("parse transfer immediate failed")
@@ -859,7 +865,7 @@ mod tests {
                         is_preindexed: true,
                         up_bit: true,
                         load: true,
-                        rn: 15,
+                        rn: PC as u8,
                         rd: 2,
                         offset: Operand2::ConstantShift(0x0, 0),
                     })

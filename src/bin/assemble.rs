@@ -16,7 +16,7 @@ fn main() {
         }
 
         _ => {
-            println!("Usage: assemble [assembly] [output]");
+            println!("Usage: assemble [source] [output]");
             process::exit(1);
         }
     }
