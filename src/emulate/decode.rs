@@ -3,6 +3,7 @@ use nom::{
     bits::complete::{tag, take},
     branch::alt,
     combinator::{map, map_opt, peek},
+    error::context,
     sequence::{pair, preceded, terminated, tuple},
 };
 
@@ -17,19 +18,22 @@ pub fn decode(instr: &u32) -> Result<ConditionalInstruction> {
 }
 
 fn decode_conditional_instruction(input: &[u8]) -> NomResult<&[u8], ConditionalInstruction> {
-    bits(map(
-        tuple((
-            decode_cond,
-            alt((
-                decode_halt,
-                decode_multiply,
-                decode_processing,
-                decode_transfer,
-                decode_branch,
+    context(
+        "decoding conditional instruction",
+        bits(map(
+            tuple((
+                decode_cond,
+                alt((
+                    decode_halt,
+                    decode_multiply,
+                    decode_processing,
+                    decode_transfer,
+                    decode_branch,
+                )),
             )),
+            |(cond, instruction)| ConditionalInstruction { instruction, cond },
         )),
-        |(cond, instruction)| ConditionalInstruction { instruction, cond },
-    ))(input)
+    )(input)
 }
 
 fn decode_halt(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
@@ -38,93 +42,105 @@ fn decode_halt(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> 
 
 fn decode_processing(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
     let is_immediate = peek(preceded(take::<_, u32, _, _>(2u32), take_bool))(input)?.1;
-    map(
-        tuple((
-            tag(0, 2u8),
-            take_bool,
-            decode_opcode,
-            take_bool,
-            take(RN.size),
-            take(RD.size),
-            if is_immediate {
-                decode_operand2_immediate
-            } else {
-                decode_operand2_shifted
+    context(
+        "decoding processing instruction",
+        map(
+            tuple((
+                tag(0, 2u8),
+                take_bool,
+                decode_opcode,
+                take_bool,
+                take(RN.size),
+                take(RD.size),
+                if is_immediate {
+                    decode_operand2_immediate
+                } else {
+                    decode_operand2_shifted
+                },
+            )),
+            |(_, _, opcode, set_cond, rn, rd, operand2)| {
+                Instruction::Processing(InstructionProcessing {
+                    opcode,
+                    set_cond,
+                    rn,
+                    rd,
+                    operand2,
+                })
             },
-        )),
-        |(_, _, opcode, set_cond, rn, rd, operand2)| {
-            Instruction::Processing(InstructionProcessing {
-                opcode,
-                set_cond,
-                rn,
-                rd,
-                operand2,
-            })
-        },
+        ),
     )(input)
 }
 
 fn decode_transfer(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
     // Check if its an immediate or shifted register transfer
     let is_shifted_r = peek(preceded(take::<_, u32, _, _>(2u32), take_bool))(input)?.1;
-    map(
-        tuple((
-            tag(1, 2u8),
-            take_bool,
-            take_bool,
-            take_bool,
-            tag(0, 2u8),
-            take_bool,
-            take(RN.size),
-            take(RD.size),
-            if is_shifted_r {
-                decode_operand2_shifted
-            } else {
-                decode_operand2_immediate
+    context(
+        "decoding transfer instruction",
+        map(
+            tuple((
+                tag(1, 2u8),
+                take_bool,
+                take_bool,
+                take_bool,
+                tag(0, 2u8),
+                take_bool,
+                take(RN.size),
+                take(RD.size),
+                if is_shifted_r {
+                    decode_operand2_shifted
+                } else {
+                    decode_operand2_immediate
+                },
+            )),
+            |(_, _, is_preindexed, up_bit, _, load, rn, rd, offset)| {
+                Instruction::Transfer(InstructionTransfer {
+                    load,
+                    up_bit,
+                    is_preindexed,
+                    rn,
+                    rd,
+                    offset,
+                })
             },
-        )),
-        |(_, _, is_preindexed, up_bit, _, load, rn, rd, offset)| {
-            Instruction::Transfer(InstructionTransfer {
-                load,
-                up_bit,
-                is_preindexed,
-                rn,
-                rd,
-                offset,
-            })
-        },
+        ),
     )(input)
 }
 
 fn decode_multiply(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
-    map(
-        tuple((
-            tag(0, 6u8),
-            take_bool,
-            take_bool,
-            take(RD_MULT.size),
-            take(RN_MULT.size),
-            take(RS.size),
-            tag(0x9, 4u8),
-            take(RM.size),
-        )),
-        |(_, accumulate, set_cond, rd, rn, rs, _, rm)| {
-            Instruction::Multiply(InstructionMultiply {
-                accumulate,
-                set_cond,
-                rd,
-                rn,
-                rs,
-                rm,
-            })
-        },
+    context(
+        "decoding multiply instruction",
+        map(
+            tuple((
+                tag(0, 6u8),
+                take_bool,
+                take_bool,
+                take(RD_MULT.size),
+                take(RN_MULT.size),
+                take(RS.size),
+                tag(0x9, 4u8),
+                take(RM.size),
+            )),
+            |(_, accumulate, set_cond, rd, rn, rs, _, rm)| {
+                Instruction::Multiply(InstructionMultiply {
+                    accumulate,
+                    set_cond,
+                    rd,
+                    rn,
+                    rs,
+                    rm,
+                })
+            },
+        ),
     )(input)
 }
 
 fn decode_branch(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
-    map(
-        tuple((tag(0xa, 4u8), take(OFFSET_BRANCH.size))),
-        |(_, offset)| Instruction::Branch(InstructionBranch { offset }),
+    context(
+        "decoding branch instruction",
+        map(
+            tuple((tag(0xa, 4u8), take(OFFSET_BRANCH.size))),
+            |(_, offset)| Instruction::Branch(InstructionBranch { offset }),
+        ),
     )(input)
 }
 
@@ -133,48 +149,63 @@ fn take_bool(input: (&[u8], usize)) -> NomResult<(&[u8], usize), bool> {
 }
 
 fn decode_opcode(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ProcessingOpcode> {
-    map_opt(take(OPCODE.size), ProcessingOpcode::from_u8)(input)
+    context(
+        "decoding processing opcode",
+        map_opt(take(OPCODE.size), ProcessingOpcode::from_u8),
+    )(input)
 }
 
 fn decode_shift_type(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ShiftType> {
-    map_opt(take(SHIFT_TYPE.size), ShiftType::from_u8)(input)
+    context(
+        "decoding shift type",
+        map_opt(take(SHIFT_TYPE.size), ShiftType::from_u8),
+    )(input)
 }
 
 fn decode_cond(input: (&[u8], usize)) -> NomResult<(&[u8], usize), ConditionCode> {
-    map_opt(take(COND.size), ConditionCode::from_u8)(input)
+    context(
+        "decoding condition code",
+        map_opt(take(COND.size), ConditionCode::from_u8),
+    )(input)
 }
 
 fn decode_operand2_immediate(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {
-    map(
-        tuple((take(IMM_SHIFT.size), take(IMM_VALUE.size))),
-        |(shift_amt, to_shift)| Operand2::ConstantShift(to_shift, shift_amt),
+    context(
+        "decoding operand2 immediate",
+        map(
+            tuple((take(IMM_SHIFT.size), take(IMM_VALUE.size))),
+            |(shift_amt, to_shift)| Operand2::ConstantShift(to_shift, shift_amt),
+        ),
     )(input)
 }
 
 fn decode_operand2_shifted(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Operand2> {
     // Check if its an constant shifted register or a shifted register
     let is_shifted_r = peek(preceded(take::<_, u8, _, _>(7u8), take_bool))(input)?.1;
-    map(
-        tuple((
-            alt((
-                pair(
-                    terminated(take::<_, u8, _, _>(REG_SHIFT.size), tag(0, 1u8)),
-                    terminated(decode_shift_type, tag(1, 1u8)),
-                ),
-                pair(
-                    take(CONST_SHIFT.size),
-                    terminated(decode_shift_type, tag(0, 1u8)),
-                ),
+    context(
+        "decoding operand2 shifted",
+        map(
+            tuple((
+                alt((
+                    pair(
+                        terminated(take::<_, u8, _, _>(REG_SHIFT.size), tag(0, 1u8)),
+                        terminated(decode_shift_type, tag(1, 1u8)),
+                    ),
+                    pair(
+                        take(CONST_SHIFT.size),
+                        terminated(decode_shift_type, tag(0, 1u8)),
+                    ),
+                )),
+                take(4u8),
             )),
-            take(4u8),
-        )),
-        move |((shift_amt, shift_type), reg_to_shift)| {
-            if is_shifted_r {
-                Operand2::ShiftedReg(reg_to_shift, Shift::RegisterShift(shift_type, shift_amt))
-            } else {
-                Operand2::ShiftedReg(reg_to_shift, Shift::ConstantShift(shift_type, shift_amt))
-            }
-        },
+            move |((shift_amt, shift_type), reg_to_shift)| {
+                if is_shifted_r {
+                    Operand2::ShiftedReg(reg_to_shift, Shift::RegisterShift(shift_type, shift_amt))
+                } else {
+                    Operand2::ShiftedReg(reg_to_shift, Shift::ConstantShift(shift_type, shift_amt))
+                }
+            },
+        ),
     )(input)
 }
 

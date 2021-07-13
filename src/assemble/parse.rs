@@ -4,7 +4,7 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{alphanumeric1, char, digit1, hex_digit1, space0, space1},
-    combinator::{complete, map, opt, recognize, success, value, verify},
+    combinator::{complete, map, map_opt, opt, recognize, success, value, verify},
     error::context,
     sequence::{delimited, preceded, terminated, tuple},
 };
@@ -325,11 +325,17 @@ fn parse_branch(
                     delimited(char('b'), opt(parse_condition_code), space1),
                     alt((
                         // Direct branch address, given as a decimal integer
-                        map(signed_decimal_value, |x: i32| x.try_into().unwrap()),
+                        context(
+                            "parsing direct branch offset",
+                            map_opt(signed_decimal_value, |x: i32| x.try_into().ok()),
+                        ),
                         // Label branch address, lookup in symbol table
-                        map(alphanumeric1, |label: &str| {
-                            *symbol_table.get(label).unwrap()
-                        }),
+                        context(
+                            "parsing label branch offset",
+                            map_opt(alphanumeric1, |label: &str| {
+                                symbol_table.get(label).map(|x| *x)
+                            }),
+                        ),
                     )),
                 )),
                 |(opt_cond, addr)| {
@@ -497,9 +503,7 @@ fn parse_reg(input: &str) -> NomResult<&str, u8> {
     context(
         "parsing register",
         verify(
-            map(preceded(char('r'), digit1), |r: &str| {
-                r.parse::<u8>().unwrap()
-            }),
+            map_opt(preceded(char('r'), digit1), |r: &str| r.parse::<u8>().ok()),
             |&r| {
                 (0..NUM_GENERAL_REGS).contains(&(r as usize))
                     || r as usize == PC

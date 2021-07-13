@@ -12,8 +12,6 @@ pub fn execute(state: &mut EmulatorState, instr: ConditionalInstruction) -> Resu
         return Ok(());
     }
 
-    // eprintln!("{:#?}", state.read_reg(2));
-
     match instr.instruction {
         Processing(processing) => execute_processing(state, processing),
         Multiply(multiply) => execute_multiply(state, multiply),
