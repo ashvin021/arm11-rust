@@ -108,9 +108,9 @@ fn decode_transfer(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instructi
             )),
             |(_, _, is_preindexed, up_bit, _, load, rn, rd, offset)| {
                 Instruction::Transfer(InstructionTransfer {
-                    load,
-                    up_bit,
                     is_preindexed,
+                    up_bit,
+                    load,
                     rn,
                     rd,
                     offset,

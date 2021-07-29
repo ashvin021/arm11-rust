@@ -5,10 +5,7 @@ const PIN_OFF: usize = 0x20200028;
 const PIN_ON: usize = 0x2020001c;
 
 pub fn gpio_accessed(mem_address: usize) -> bool {
-    match mem_address {
-        GPIO_10 | GPIO_20 | GPIO_30 | PIN_OFF | PIN_ON => true,
-        _ => false,
-    }
+    matches!(mem_address, GPIO_10 | GPIO_20 | GPIO_30 | PIN_OFF | PIN_ON)
 }
 
 pub fn print_gpio_message(mem_address: usize) {

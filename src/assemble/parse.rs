@@ -95,9 +95,9 @@ fn parse_processing(input: &str) -> NomResult<&str, (ConditionalInstruction, Opt
                         cond: ConditionCode::Al,
                         instruction: Instruction::Processing(InstructionProcessing {
                             opcode,
-                            rd,
-                            rn,
                             set_cond,
+                            rn,
+                            rd,
                             operand2,
                         }),
                     },
@@ -333,7 +333,7 @@ fn parse_branch(
                         context(
                             "parsing label branch offset",
                             map_opt(alphanumeric1, |label: &str| {
-                                symbol_table.get(label).map(|x| *x)
+                                symbol_table.get(label).copied()
                             }),
                         ),
                     )),
