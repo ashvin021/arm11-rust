@@ -12,32 +12,46 @@ use num_traits::FromPrimitive;
 use crate::{constants::*, parse::*, types::*};
 
 pub fn decode(instr: &u32) -> Result<ConditionalInstruction> {
-    Ok(decode_conditional_instruction(&instr.to_be_bytes()[..])
+    // A zero instruction is Halt
+    if *instr == 0 {
+        return Ok(ConditionalInstruction {
+            cond: ConditionCode::Eq,
+            instruction: Instruction::Halt,
+        });
+    }
+
+    let mut decoder = bits(decode_conditional_instruction);
+    Ok(decoder(&instr.to_be_bytes())
         .map_err(|e| format!("{:#?}", e))?
         .1)
 }
 
-fn decode_conditional_instruction(input: &[u8]) -> NomResult<&[u8], ConditionalInstruction> {
+fn decode_conditional_instruction(
+    input: (&[u8], usize),
+) -> NomResult<(&[u8], usize), ConditionalInstruction> {
+    let instr_type: (u32, u32) = context(
+        "peeking conditional instruction type",
+        peek(tuple((
+            preceded(take::<_, u32, _, _>(4u32), take(2u32)),
+            preceded(take::<_, u32, _, _>(18u32), take(4u32)),
+        ))),
+    )(input)?
+    .1;
+
+    let decode_instr = match instr_type {
+        (0x0, 0x9) => decode_multiply,
+        (0x0, _) => decode_processing,
+        (0x1, _) => decode_transfer,
+        (0x2, _) => decode_branch,
+        _ => return Err(ArmNomError::new(ArmNomErrorKind::InvalidInstructionType).into()),
+    };
+
     context(
         "decoding conditional instruction",
-        bits(map(
-            tuple((
-                decode_cond,
-                alt((
-                    decode_halt,
-                    decode_multiply,
-                    decode_processing,
-                    decode_transfer,
-                    decode_branch,
-                )),
-            )),
-            |(cond, instruction)| ConditionalInstruction { instruction, cond },
-        )),
+        map(tuple((decode_cond, decode_instr)), |(cond, instruction)| {
+            ConditionalInstruction { instruction, cond }
+        }),
     )(input)
-}
-
-fn decode_halt(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
-    map(tag(0, 28u32), |_| Instruction::Halt)(input)
 }
 
 fn decode_processing(input: (&[u8], usize)) -> NomResult<(&[u8], usize), Instruction> {
@@ -237,16 +251,8 @@ mod tests {
 
     #[test]
     fn test_decode_halt() {
-        let bytes = 0u32.to_be_bytes();
         assert_eq!(
-            bits(decode_halt)(&bytes[..]).expect("parse halt failed").1,
-            Instruction::Halt
-        );
-        assert_eq!(
-            decode_conditional_instruction(&bytes[..])
-                .expect("decode conditional halt failed")
-                .1
-                .instruction,
+            decode(&0u32).expect("parse halt failed").instruction,
             Instruction::Halt
         );
     }
@@ -266,7 +272,7 @@ mod tests {
         };
 
         assert_eq!(
-            decode_conditional_instruction(&bytes[..])
+            bits(decode_conditional_instruction)(&bytes[..])
                 .expect("decode conditional processing failed")
                 .1,
             expected
@@ -289,7 +295,7 @@ mod tests {
         };
 
         assert_eq!(
-            decode_conditional_instruction(&bytes[..])
+            bits(decode_conditional_instruction)(&bytes[..])
                 .expect("decode conditional multiply failed")
                 .1,
             expected
@@ -312,7 +318,7 @@ mod tests {
         };
 
         assert_eq!(
-            decode_conditional_instruction(&bytes[..])
+            bits(decode_conditional_instruction)(&bytes[..])
                 .expect("decode conditional transfer failed")
                 .1,
             expected
@@ -328,7 +334,7 @@ mod tests {
         };
 
         assert_eq!(
-            decode_conditional_instruction(&bytes[..])
+            bits(decode_conditional_instruction)(&bytes[..])
                 .expect("decode conditional branch failed")
                 .1,
             expected

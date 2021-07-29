@@ -11,6 +11,7 @@ pub struct ArmNomError<I> {
 pub enum ArmNomErrorKind<I> {
     Nom(I, ErrorKind),
     Context(I, &'static str),
+    InvalidInstructionType,
     Operand2Constant,
     HexadecimalValue,
     DecimalValue,
@@ -72,6 +73,7 @@ impl<I> ErrorConvert<ArmNomErrorKind<I>> for ArmNomErrorKind<(I, usize)> {
             ArmNomErrorKind::HexadecimalValue => ArmNomErrorKind::HexadecimalValue,
             ArmNomErrorKind::DecimalValue => ArmNomErrorKind::DecimalValue,
             ArmNomErrorKind::SignedDecimalValue => ArmNomErrorKind::SignedDecimalValue,
+            ArmNomErrorKind::InvalidInstructionType => ArmNomErrorKind::InvalidInstructionType,
         }
     }
 }
