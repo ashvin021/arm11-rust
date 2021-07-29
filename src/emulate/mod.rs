@@ -1,6 +1,7 @@
 mod decode;
 mod execute;
 mod fetch;
+mod gpio;
 mod state;
 
 use std::fs;

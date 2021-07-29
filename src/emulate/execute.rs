@@ -5,7 +5,7 @@ use crate::{
     types::{Instruction::*, *},
 };
 
-use super::state::*;
+use super::{gpio::*, state::*};
 
 pub fn execute(state: &mut EmulatorState, instr: ConditionalInstruction) -> Result<()> {
     if !instr.satisfies_cpsr(state.read_reg(CPSR)) {
@@ -117,19 +117,27 @@ fn execute_transfer(state: &mut EmulatorState, instr: InstructionTransfer) -> Re
     }
 
     // Perform transfer
-    if mem_address <= MEMORY_SIZE {
-        if load {
-            // Load the memory to R[rd]
-            state.write_reg(rd as usize, state.read_memory(mem_address)?);
-        } else {
-            // Stores the value at Mem[rd]
-            state.write_memory(mem_address, state.regs()[rd as usize])
+    const LAST_MEM: usize = MEMORY_SIZE - 1;
+    match mem_address {
+        0..=LAST_MEM => {
+            if load {
+                // Load the memory to R[rd]
+                state.write_reg(rd as usize, state.read_memory(mem_address)?);
+            } else {
+                // Stores the value at Mem[rd]
+                state.write_memory(mem_address, state.regs()[rd as usize])
+            }
         }
-    } else {
-        println!(
+        _ if gpio_accessed(mem_address) => {
+            print_gpio_message(mem_address);
+            if load {
+                state.write_reg(rd as usize, mem_address as u32);
+            }
+        }
+        _ => println!(
             "Error: Out of bounds memory access at address 0x{:0>8x}",
             mem_address
-        );
+        ),
     }
 
     // Handle post-indexing
